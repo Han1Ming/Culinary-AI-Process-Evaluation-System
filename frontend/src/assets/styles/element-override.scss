@@ -1,0 +1,531 @@
+// ============================================================================
+// Element Plus 主题覆盖
+// ----------------------------------------------------------------------------
+// 目标：让组件库和自绘组件看起来出自同一只手。
+// 纪律：
+//   · 只覆盖「变量 + 尺寸 + 状态反馈」，不重写组件内部 DOM 结构
+//   · 所有颜色/圆角/时长都取自 variables.scss，不出现新的硬编码色值
+//   · 主按钮不用彩色投影（那是模板站特征），靠色块本身建立点击欲望
+// ============================================================================
+@use './variables.scss' as *;
+
+:root {
+  // ---------- 主色系 ----------
+  --el-color-primary: #{$color-primary};
+  --el-color-primary-light-3: #{$color-primary-light-3};
+  --el-color-primary-light-5: #{$color-primary-light-5};
+  --el-color-primary-light-7: #{$color-primary-light-7};
+  --el-color-primary-light-8: #{$color-primary-light-8};
+  --el-color-primary-light-9: #{$color-primary-light-9};
+  --el-color-primary-dark-2: #{$color-primary-active};
+
+  // ---------- 语义色 ----------
+  --el-color-success: #{$color-success};
+  --el-color-success-light-9: #{$color-success-soft};
+  --el-color-warning: #{$color-warning};
+  --el-color-warning-light-9: #{$color-warning-soft};
+  --el-color-danger: #{$color-danger};
+  --el-color-danger-light-9: #{$color-danger-soft};
+  --el-color-error: #{$color-danger};
+  --el-color-info: #{$color-info};
+  --el-color-info-light-9: #{$color-info-soft};
+
+  // ---------- 文本与边框 ----------
+  --el-text-color-primary: #{$color-text-primary};
+  --el-text-color-regular: #{$color-text-regular};
+  --el-text-color-secondary: #{$color-text-secondary};
+  --el-text-color-placeholder: #{$color-text-placeholder};
+  --el-text-color-disabled: #{$color-text-placeholder};
+  --el-border-color: #{$color-border};
+  --el-border-color-light: #{$color-border-light};
+  --el-border-color-lighter: #{$color-border-light};
+  --el-border-color-extra-light: #{$color-border-light};
+  --el-fill-color-blank: #{$color-bg-surface};
+  --el-fill-color-light: #{$color-bg-subtle};
+  --el-fill-color-lighter: #{$color-bg-hover};
+  --el-bg-color-page: #{$color-bg-page};
+  --el-bg-color-overlay: #{$color-bg-surface};
+
+  // ---------- 圆角与字体 ----------
+  --el-border-radius-base: #{$radius-md};
+  --el-border-radius-small: #{$radius-sm};
+  --el-border-radius-round: #{$radius-pill};
+  --el-font-family: #{$font-family-base};
+  --el-font-size-base: #{$font-size-base};
+  --el-font-size-small: #{$font-size-sm};
+  --el-font-size-extra-small: #{$font-size-xs};
+
+  // ---------- 阴影 ----------
+  --el-box-shadow-light: #{$shadow-card};
+  --el-box-shadow: #{$shadow-raised};
+  --el-box-shadow-dark: #{$shadow-popper};
+
+  // ---------- 控件高度统一 36px ----------
+  --el-component-size: #{$control-height};
+  --el-component-size-small: #{$control-height-sm};
+  --el-component-size-large: #{$control-height-lg};
+
+  // ---------- 过渡曲线统一 ----------
+  --el-transition-duration: #{$duration-base};
+  --el-transition-duration-fast: #{$duration-fast};
+  --el-transition-all: all var(--el-transition-duration) #{$ease-standard};
+}
+
+// ============================================================================
+// 按钮：统一 36px 高、8px 圆角、按下有位移
+// ============================================================================
+.el-button {
+  height: $control-height;
+  padding: 0 14px;
+  font-weight: $font-weight-medium;
+  border-radius: $radius-md;
+  transition: background-color $duration-fast $ease-standard,
+    border-color $duration-fast $ease-standard, color $duration-fast $ease-standard,
+    transform $duration-instant $ease-standard;
+  // 按钮内图标与文字用 gap 对齐，不靠 Element 的 margin hack
+  gap: 6px;
+
+  &:active {
+    transform: translateY(0.5px);
+  }
+
+  &--large {
+    height: $control-height-lg;
+    padding: 0 $space-5;
+  }
+
+  &--small {
+    height: $control-height-sm;
+    padding: 0 10px;
+    font-size: $font-size-sm;
+  }
+
+  // 文字按钮：不加背景、不加边框，只变颜色
+  &.is-link,
+  &.is-text {
+    height: auto;
+    padding: 0;
+    transform: none;
+
+    &:hover {
+      background: transparent;
+    }
+  }
+
+  .el-icon + span,
+  span + .el-icon {
+    margin-left: 0;
+  }
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+}
+
+// 主按钮：不加彩色投影，悬浮只提亮
+.el-button--primary {
+  box-shadow: none;
+
+  &:hover {
+    box-shadow: none;
+  }
+}
+
+// 默认按钮：边框在悬浮时变深一档
+.el-button--default:not(.is-disabled) {
+  border-color: $color-border;
+
+  &:hover {
+    color: $color-text-primary;
+    background: $color-bg-hover;
+    border-color: $color-border-strong;
+  }
+}
+
+// ============================================================================
+// 输入类控件：1px 边框 + 悬浮加深 + 聚焦外环
+// ============================================================================
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: $radius-md;
+  box-shadow: 0 0 0 1px $color-border inset;
+  transition: box-shadow $duration-fast $ease-standard;
+
+  &:hover {
+    box-shadow: 0 0 0 1px $color-border-strong inset;
+  }
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px $color-primary inset, $shadow-focus !important;
+}
+
+.el-input__inner::placeholder,
+.el-textarea__inner::placeholder {
+  color: $color-text-placeholder;
+}
+
+// 搜索框前缀图标与文字间距
+.el-input__prefix {
+  color: $color-text-placeholder;
+}
+
+// ============================================================================
+// 卡片
+// ============================================================================
+.el-card {
+  border: 1px solid $color-border-light;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card !important;
+
+  .el-card__header {
+    padding: $space-3 $space-5;
+    font-size: $font-size-base;
+    font-weight: $font-weight-semibold;
+    border-bottom: 1px solid $color-border-light;
+  }
+
+  .el-card__body {
+    padding: $card-padding;
+  }
+}
+
+// ============================================================================
+// 表格：表头无底色、行高 52、只有行底分隔线
+// ============================================================================
+.el-table {
+  --el-table-border-color: #{$color-border-light};
+  --el-table-header-bg-color: transparent;
+  --el-table-header-text-color: #{$color-text-secondary};
+  --el-table-row-hover-bg-color: #f7f7f8;
+  --el-table-text-color: #{$color-text-regular};
+  font-size: $font-size-base;
+
+  th.el-table__cell {
+    height: $table-head-height;
+    padding: 0;
+    font-size: $font-size-xs;
+    font-weight: $font-weight-medium;
+    letter-spacing: 0.02em;
+    color: $color-text-secondary;
+    background: transparent;
+    border-bottom: 1px solid $color-border;
+
+    .cell {
+      padding: 0 $space-4;
+    }
+  }
+
+  td.el-table__cell {
+    height: $table-row-height;
+    padding: 0;
+    border-bottom: 1px solid $color-border-light;
+
+    .cell {
+      padding: 0 $space-4;
+      line-height: 1.4;
+    }
+  }
+
+  tr:last-child td.el-table__cell {
+    border-bottom: none;
+  }
+
+  &::before,
+  &::after {
+    display: none;
+  }
+
+  .el-table__row {
+    transition: background-color $duration-fast $ease-standard;
+  }
+}
+
+// ============================================================================
+// 分页：紧凑、贴右
+// ============================================================================
+.el-pagination {
+  --el-pagination-button-height: 28px;
+  --el-pagination-button-width: 28px;
+  justify-content: flex-end;
+  font-weight: $font-weight-regular;
+
+  .btn-prev,
+  .btn-next,
+  .el-pager li {
+    border-radius: $radius-sm;
+    transition: background-color $duration-fast $ease-standard,
+      color $duration-fast $ease-standard;
+  }
+
+  .el-pager li.is-active {
+    font-weight: $font-weight-semibold;
+    color: #fff;
+    background: $color-text-primary;
+  }
+}
+
+// ============================================================================
+// 对话框：14px 圆角、无分割线、底部按钮右对齐
+// ============================================================================
+.el-dialog {
+  padding: 0;
+  overflow: hidden;
+  border-radius: $radius-xl;
+  box-shadow: $shadow-popper;
+
+  .el-dialog__header {
+    margin: 0;
+    padding: $space-5 $space-6 $space-4;
+  }
+
+  .el-dialog__headerbtn {
+    top: $space-4;
+    right: $space-4;
+    width: 28px;
+    height: 28px;
+    border-radius: $radius-sm;
+    transition: background-color $duration-fast $ease-standard;
+
+    &:hover {
+      background: $color-bg-subtle;
+    }
+  }
+
+  .el-dialog__title {
+    font-size: $font-size-md;
+    font-weight: $font-weight-semibold;
+  }
+
+  .el-dialog__body {
+    padding: 0 $space-6 $space-2;
+  }
+
+  .el-dialog__footer {
+    padding: $space-4 $space-6 $space-5;
+  }
+}
+
+.el-overlay {
+  backdrop-filter: blur(2px);
+  background-color: rgba(24, 24, 27, 0.36);
+}
+
+// ============================================================================
+// 标签：浅底 + 语义文字色，不用满饱和填充
+// ============================================================================
+.el-tag {
+  height: 22px;
+  padding: 0 7px;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-medium;
+  border: none;
+  border-radius: $radius-xs;
+  background: $color-bg-subtle;
+  color: $color-text-regular;
+
+  &.el-tag--success {
+    color: $color-success;
+    background: $color-success-soft;
+  }
+
+  &.el-tag--warning {
+    color: $color-warning;
+    background: $color-warning-soft;
+  }
+
+  &.el-tag--danger {
+    color: $color-danger;
+    background: $color-danger-soft;
+  }
+
+  &.el-tag--primary {
+    color: $color-primary;
+    background: $color-primary-soft;
+  }
+
+  &.is-round {
+    border-radius: $radius-pill;
+  }
+}
+
+// ============================================================================
+// 下拉菜单 / 弹层
+// ============================================================================
+.el-dropdown__popper,
+.el-popper.is-light {
+  border: 1px solid $color-border-light !important;
+  border-radius: $radius-lg !important;
+  box-shadow: $shadow-popper !important;
+}
+
+.el-dropdown-menu {
+  padding: $space-1;
+
+  &__item {
+    height: 34px;
+    margin: 0;
+    padding: 0 $space-3;
+    font-size: $font-size-sm;
+    line-height: 34px;
+    border-radius: $radius-sm;
+    transition: background-color $duration-fast $ease-standard,
+      color $duration-fast $ease-standard;
+
+    &:not(.is-disabled):hover {
+      color: $color-text-primary;
+      background: $color-bg-subtle;
+    }
+
+    &--divided {
+      margin-top: $space-1;
+      border-top: 1px solid $color-border-light;
+
+      &::before {
+        display: none;
+      }
+    }
+  }
+}
+
+// ============================================================================
+// 表单
+// ============================================================================
+.el-form-item__label {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-text-regular;
+}
+
+.el-form-item {
+  margin-bottom: $space-5;
+}
+
+// ============================================================================
+// 菜单（侧边栏）：选中项 = 极浅底 + 深色文字 + 左侧指示条
+// 不再使用整块蓝色底，避免侧栏成为全页最亮的区域
+// ============================================================================
+.el-menu {
+  background: transparent;
+  border-right: none !important;
+
+  &:not(.el-menu--horizontal) .el-menu-item,
+  &:not(.el-menu--horizontal) .el-sub-menu__title {
+    height: 36px;
+    margin: 2px 0;
+    padding-left: var(--menu-indent, 12px) !important;
+    font-size: $font-size-sm;
+    line-height: 36px;
+    color: $color-text-regular;
+    border-radius: $radius-sm;
+    transition: background-color $duration-fast $ease-standard,
+      color $duration-fast $ease-standard;
+
+    &:hover {
+      color: $color-text-primary;
+      background: $color-bg-subtle;
+    }
+  }
+
+  .el-menu-item.is-active {
+    font-weight: $font-weight-medium;
+    color: $color-text-primary;
+    background: $color-bg-subtle;
+
+    &::before {
+      position: absolute;
+      top: 50%;
+      left: 0;
+      width: 2px;
+      height: 14px;
+      content: '';
+      background: $color-primary;
+      border-radius: $radius-pill;
+      transform: translateY(-50%);
+    }
+  }
+
+  .el-sub-menu.is-active > .el-sub-menu__title {
+    color: $color-text-primary;
+  }
+
+  .el-sub-menu .el-menu-item {
+    min-width: 0;
+    height: 32px;
+    font-size: $font-size-sm;
+    line-height: 32px;
+  }
+}
+
+// ============================================================================
+// 通知 / 消息
+// ============================================================================
+.el-notification {
+  padding: $space-4;
+  border: 1px solid $color-border-light;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-popper;
+
+  .el-notification__title {
+    font-size: $font-size-base;
+    font-weight: $font-weight-semibold;
+  }
+
+  .el-notification__content {
+    margin-top: 2px;
+    font-size: $font-size-sm;
+    color: $color-text-secondary;
+  }
+}
+
+.el-message {
+  padding: 10px $space-4;
+  border: 1px solid $color-border-light;
+  border-radius: $radius-md;
+  box-shadow: $shadow-raised;
+
+  .el-message__content {
+    font-size: $font-size-sm;
+  }
+}
+
+// ============================================================================
+// 加载遮罩：浅色、不闪白
+// ============================================================================
+.el-loading-mask {
+  background-color: rgba(255, 255, 255, 0.78);
+  transition: opacity $duration-fast $ease-standard;
+}
+
+.el-loading-spinner .circular {
+  width: 22px;
+  height: 22px;
+}
+
+// ============================================================================
+// 开关 / 进度 / 头像
+// ============================================================================
+.el-switch {
+  --el-switch-on-color: #{$color-text-primary};
+  --el-switch-off-color: #{$color-border-strong};
+}
+
+.el-progress-bar__outer {
+  background-color: $color-bg-sunken;
+}
+
+.el-avatar {
+  font-weight: $font-weight-medium;
+  background: $color-bg-subtle;
+  color: $color-text-regular;
+}
+
+// 抽屉：统一圆角与阴影
+.el-drawer {
+  box-shadow: $shadow-popper;
+}

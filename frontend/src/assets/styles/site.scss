@@ -1,0 +1,87 @@
+// ============================================================================
+// 营销站公共类（官网 / 注册页）
+// ----------------------------------------------------------------------------
+// 这些类必须放在全局：Vue 的 scoped 样式只作用于本组件，
+// 父布局里定义的 .btn 无法被子组件里的按钮匹配到（子组件没有父组件的 data-v）。
+// 踩过一次：首屏两个按钮完全没有样式，白底黑字贴在页面上。
+// ============================================================================
+@use './variables.scss' as *;
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: $site-btn-height;
+  padding: 0 $site-btn-padding;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  color: $site-ink;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: $radius-md;
+  transition:
+    background-color $duration-fast $ease-standard,
+    border-color $duration-fast $ease-standard,
+    color $duration-fast $ease-standard,
+    transform $duration-instant $ease-standard;
+
+  &:active {
+    transform: translateY(1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid $color-primary;
+    outline-offset: 2px;
+  }
+
+  &--primary {
+    color: #fff;
+    background: $color-primary;
+    border-color: $color-primary;
+
+    &:hover {
+      background: $color-primary-hover;
+      border-color: $color-primary-hover;
+    }
+  }
+
+  &--ghost {
+    color: $site-ink;
+    background: transparent;
+    border-color: $color-border;
+
+    &:hover {
+      border-color: $color-border-strong;
+    }
+  }
+
+  &--onDark {
+    color: $site-ink;
+    background: $site-ink-inverse;
+    border-color: $site-ink-inverse;
+
+    &:hover {
+      background: #fff;
+    }
+  }
+}
+
+// 文字链接按钮：用于「登录」这类不该抢视线的入口
+.link-btn {
+  padding: 8px 4px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  color: $site-ink-soft;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  transition: color $duration-fast $ease-standard;
+
+  &:hover {
+    color: $site-ink;
+  }
+}

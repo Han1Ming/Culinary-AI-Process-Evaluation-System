@@ -1,0 +1,295 @@
+// ============================================================================
+// 全局基础层：重置、排版、滚动、焦点、通用容器
+// 约定：这里只放「全站唯一」的规则，页面级样式一律写在各自的 .vue 里
+// ============================================================================
+@use './variables.scss' as *;
+
+// ---------- 设计令牌输出为 CSS 变量（供运行时与内联样式使用）----------
+:root {
+  --app-color-primary: #{$color-primary};
+  --app-color-primary-soft: #{$color-primary-soft};
+  --app-color-success: #{$color-success};
+  --app-color-warning: #{$color-warning};
+  --app-color-danger: #{$color-danger};
+
+  --app-bg-page: #{$color-bg-page};
+  --app-bg-surface: #{$color-bg-surface};
+  --app-bg-subtle: #{$color-bg-subtle};
+
+  --app-text-primary: #{$color-text-primary};
+  --app-text-regular: #{$color-text-regular};
+  --app-text-secondary: #{$color-text-secondary};
+  --app-text-placeholder: #{$color-text-placeholder};
+
+  --app-border-color: #{$color-border};
+  --app-border-light: #{$color-border-light};
+
+  --app-radius-sm: #{$radius-sm};
+  --app-radius-md: #{$radius-md};
+  --app-radius-lg: #{$radius-lg};
+
+  --app-shadow-card: #{$shadow-card};
+  --app-shadow-raised: #{$shadow-raised};
+
+  --app-header-height: #{$header-height};
+  --app-sidebar-width: #{$sidebar-width};
+  --app-sidebar-collapsed: #{$sidebar-width-collapsed};
+
+  --app-ease: #{$ease-emphasized};
+  --app-ease-standard: #{$ease-standard};
+  --app-duration-fast: #{$duration-fast};
+  --app-duration: #{$duration-base};
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  // 防止侧栏折叠/出现滚动条时整页左右抖动
+  scrollbar-gutter: stable;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: $font-family-base;
+  font-size: $font-size-base;
+  line-height: $line-height-base;
+  color: $color-text-primary;
+  background-color: $color-bg-page;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  // 数字等宽：表格、统计卡对齐时不跳动
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
+  font-weight: $font-weight-semibold;
+  line-height: $line-height-tight;
+  color: $color-text-primary;
+  letter-spacing: -0.011em;
+}
+
+p {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: $color-primary;
+  text-decoration: none;
+  transition: color $duration-fast $ease-standard;
+
+  &:hover {
+    color: $color-primary-hover;
+  }
+}
+
+button {
+  font-family: inherit;
+}
+
+img,
+video,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+// ---------- 焦点可见性：只用键盘导航时出现，鼠标点击不出环 ----------
+:focus-visible {
+  outline: 2px solid rgba(47, 84, 235, 0.55);
+  outline-offset: 2px;
+  border-radius: $radius-xs;
+}
+
+// ---------- 滚动条：细、悬停才明显 ----------
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 3px solid transparent;
+  border-radius: $radius-pill;
+  background-clip: content-box;
+  transition: background-color $duration-fast $ease-standard;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+// ---------- 卡片容器（全站唯一卡片外观）----------
+.app-card {
+  padding: $card-padding;
+  background: $color-bg-surface;
+  border: 1px solid $color-border-light;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.app-card--flush {
+  padding: 0;
+}
+
+.app-card--lg {
+  padding: $card-padding-lg;
+}
+
+// 卡片通栏标题（替代每张卡都写一遍的 header）
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $space-3;
+  margin-bottom: $space-4;
+
+  &__title {
+    font-size: $font-size-base;
+    font-weight: $font-weight-semibold;
+    color: $color-text-primary;
+  }
+
+  &__desc {
+    margin-top: 2px;
+    font-size: $font-size-xs;
+    color: $color-text-secondary;
+  }
+
+  &__extra {
+    flex-shrink: 0;
+  }
+}
+
+// ---------- 文本工具类 ----------
+.text-secondary {
+  color: $color-text-secondary;
+}
+
+.text-muted {
+  color: $color-text-placeholder;
+}
+
+.text-strong {
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+// 等宽数字：任何会变动的数值都应加这个类
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: -0.01em;
+}
+
+// 单行省略
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// ---------- 布局工具类 ----------
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gap-8 {
+  gap: $space-2;
+}
+
+.gap-12 {
+  gap: $space-3;
+}
+
+.gap-16 {
+  gap: $space-4;
+}
+
+// ---------- 路由过渡（只做透明度 + 极小位移，大位移会显得廉价）----------
+.page-fade-enter-active {
+  transition: opacity 180ms $ease-emphasized, transform 180ms $ease-emphasized;
+}
+
+.page-fade-leave-active {
+  transition: opacity 90ms linear;
+}
+
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.page-fade-leave-to {
+  opacity: 0;
+}
+
+// 旧命名兼容
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity $duration-base $ease-emphasized, transform $duration-base $ease-emphasized;
+}
+
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.fade-slide-leave-to {
+  opacity: 0;
+}
+
+// ---------- 尊重系统「减少动态效果」偏好 ----------
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

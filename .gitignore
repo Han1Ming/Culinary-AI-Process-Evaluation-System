@@ -1,0 +1,34 @@
+# 忽略依赖与构建产物（frontend/.gitignore 里另有一份，两处都生效）
+node_modules/
+dist/
+
+# 本地环境变量（含个人配置 / 密钥，不要提交）
+.env.local
+.env.*.local
+
+# Python 后端
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 编辑器与系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.log
+
+# 项目级 Skill 镜像：57MB / 2200+ 文件，全部是第三方资源（字体、图库、图标库），
+# 体积远大于本项目源码本身，且与上游仓库重复。按 README 第三节的命令从上游重装即可，
+# 不纳入版本库。本地照常存在，Codex 仍然能从 .codex/skills/ 加载。
+.codex/
+
+# 本地协作工具的记忆目录（个人的开发笔记与决策日志），不属于交付物
+.workbuddy/
+
+# 截图与校验脚本的临时目录（验收用，用完即删）
+_verify/
+_gen/

@@ -1,0 +1,37 @@
+{
+  "name": "culinary-ai-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "烹饪AI过程评价系统 - 前端（Vue 3 + TypeScript + Element Plus）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "build:only": "vite build",
+    "preview": "vite preview --port 4173",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "axios": "^1.21.1",
+    "dayjs": "^1.11.23",
+    "dompurify": "^3.4.18",
+    "element-plus": "^2.14.8",
+    "markdown-it": "^14.3.3",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.45",
+    "vue-router": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "^22.18.0",
+    "@vitejs/plugin-vue": "^6.0.11",
+    "sass": "^1.108.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.8",
+    "vue-tsc": "^3.3.14"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

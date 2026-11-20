@@ -1,0 +1,190 @@
+// ============================================================================
+// 设计令牌（Design Tokens）
+// ----------------------------------------------------------------------------
+// 来源：.codex/skills/ui-ux-pro-max → design-system/culinary-ai-process-evaluation/MASTER.md
+//   查询语句：enterprise school management SaaS dashboard light --design-system --density 8
+//
+// 本文件只声明 SCSS 变量，产出 CSS 见 base.scss / element-override.scss
+//
+// 【视觉纪律】修改样式前请先读完这五条，这是本项目「不像 AI 生成模板」的根因：
+//   1. 一个强调色。全站彩色只用于状态语义（成功/警告/危险）的小面积元素，
+//      禁止用彩色区分「卡片类别」。靠字号、字重、间距、边框深浅建立层次。
+//   2. 中性灰必须是真的中性灰（R≈G≈B）。偏蓝的灰会让整页发"塑料蓝"。
+//   3. 禁止装饰性色彩条（卡片顶部 3px 彩条、图标彩色方块、pill 标签堆叠）。
+//   4. 层级只用三档阴影，卡片默认 1px 边框 + 几乎不可见的投影，悬浮才抬起。
+//   5. 动效统一从 $ease-emphasized / $ease-standard 取值，不写裸 cubic-bezier。
+// ============================================================================
+
+// ---------- 品牌色（单强调色：沉稳靛蓝，只用于主操作/链接/焦点/当前项）----------
+$color-primary: #2f54eb; // 主色，对比度 5.1:1（白底）
+$color-primary-hover: #1d39c4;
+$color-primary-active: #10239e;
+$color-primary-soft: #eef1fd; // 极浅底，仅用于选中项
+$color-primary-light-3: #5b78f0;
+$color-primary-light-5: #8496f5;
+$color-primary-light-7: #b0bbf9;
+$color-primary-light-8: #c8d0fb;
+$color-primary-light-9: #e4e8fd;
+
+// ---------- 语义色（仅状态用，饱和度为「可读」而非「抢眼」）----------
+$color-success: #15803d;
+$color-success-soft: #eef7f0;
+$color-success-dot: #22c55e; // 圆点指示器专用，比文字色亮一档
+$color-warning: #b45309;
+$color-warning-soft: #fdf6ec;
+$color-warning-dot: #f59e0b;
+$color-danger: #b91c1c;
+$color-danger-soft: #fdf0f0;
+$color-danger-dot: #ef4444;
+$color-info: #52525b;
+$color-info-soft: #f4f4f5;
+
+// ---------- 中性色（纯中性灰，严格 R=G=B 阶梯）----------
+$color-bg-page: #f7f7f8; // 页面底
+$color-bg-surface: #ffffff; // 卡片/浮层
+$color-bg-subtle: #f4f4f5; // 次级填充（表头、输入框底）
+$color-bg-hover: #fafafa; // 行悬浮
+$color-bg-sunken: #efeff1; // 更深一档（进度槽、分隔块）
+
+$color-text-primary: #18181b; // 标题/数值
+$color-text-regular: #3f3f46; // 正文
+$color-text-secondary: #71717a; // 辅助说明
+$color-text-placeholder: #a1a1aa; // 占位/禁用
+
+$color-border: #e4e4e7; // 控件边框
+$color-border-light: #f0f0f2; // 卡片边框/分隔线
+$color-border-strong: #d4d4d8; // hover 态边框
+
+// ---------- 圆角（克制：10px 卡片 / 8px 控件 / 6px 小元素）----------
+$radius-xs: 4px;
+$radius-sm: 6px;
+$radius-md: 8px;
+$radius-lg: 10px;
+$radius-xl: 14px;
+$radius-pill: 999px;
+
+// ---------- 阴影（三档，卡片几乎无影，靠边框分界）----------
+$shadow-card: 0 1px 2px rgba(24, 24, 27, 0.04);
+$shadow-raised: 0 4px 12px -2px rgba(24, 24, 27, 0.08), 0 2px 4px -2px rgba(24, 24, 27, 0.04);
+$shadow-popper: 0 12px 32px -8px rgba(24, 24, 27, 0.16), 0 4px 8px -4px rgba(24, 24, 27, 0.06);
+$shadow-focus: 0 0 0 3px rgba(47, 84, 235, 0.16);
+
+// ---------- 间距（4px 基准，8px 栅格）----------
+$space-1: 4px;
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+$space-5: 20px;
+$space-6: 24px;
+$space-7: 32px;
+$space-8: 40px;
+$space-9: 48px;
+$space-10: 64px;
+
+// ---------- 字号阶梯（1.2 比例，管理后台用 12/13/14/16/20/26）----------
+$font-size-xs: 12px;
+$font-size-sm: 13px;
+$font-size-base: 14px;
+$font-size-md: 16px;
+$font-size-lg: 20px;
+$font-size-xl: 26px;
+$font-size-2xl: 32px;
+$font-size-3xl: 40px;
+
+$font-weight-regular: 400;
+$font-weight-medium: 500;
+$font-weight-semibold: 600;
+$font-weight-bold: 700;
+
+$line-height-tight: 1.25;
+$line-height-base: 1.6;
+
+// ---------- 字体（只用系统中可用的字体，不声明未加载的 Web Font）----------
+// 中文优先苹方/微软雅黑，西文与数字跟随系统 UI 字体，整体更锐利
+$font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+  'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+$font-family-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+// ---------- 控件尺寸（全站统一，禁止页面内单独覆盖）----------
+$control-height: 36px;
+$control-height-sm: 28px;
+$control-height-lg: 44px;
+$table-row-height: 52px;
+$table-head-height: 40px;
+$card-padding: 20px;
+$card-padding-lg: 24px;
+
+// ---------- 布局 ----------
+$sidebar-width: 220px;
+$sidebar-width-collapsed: 64px;
+$header-height: 56px;
+$content-padding: 20px 24px 32px;
+$content-max-width: 1400px;
+
+// ---------- 动效（三档时长 + 两条标准曲线）----------
+$ease-emphasized: cubic-bezier(0.2, 0, 0, 1); // 进场：快起慢收
+$ease-standard: cubic-bezier(0.4, 0, 0.2, 1); // 状态切换：对称
+$ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1); // 轻微回弹，只用于小元素
+$duration-instant: 80ms;
+$duration-fast: 140ms;
+$duration-base: 220ms;
+$duration-slow: 320ms;
+$duration-enter: 420ms;
+
+// 兼容旧命名（既有页面仍在引用）
+$ease-out: $ease-emphasized;
+
+// ---------- 断点 ----------
+$breakpoint-sm: 640px;
+$breakpoint-md: 768px;
+$breakpoint-lg: 1024px;
+$breakpoint-xl: 1440px;
+
+// ============================================================================
+// 营销站专用令牌（官网 / 注册页）
+// ----------------------------------------------------------------------------
+// 依据 .codex/skills/design-taste-frontend/references/system.md 的节奏体系：
+//   · 版面整体 90% 以上是中性色，彩色只出现在一处强调（按钮 / 焦点 / 一个色带）
+//   · 每个 section 恰好一屏或两屏，标题顶对齐，不垂直居中
+//   · 正文不小于 16px，行宽不超过 62 字符
+//   · 不做滚动淡入、不做视差、不做 scroll-jacking
+// ============================================================================
+
+// 版面边距：桌面 80px，平板 48px，手机 20px
+$site-gutter: 80px;
+$site-gutter-tablet: 48px;
+$site-gutter-phone: 20px;
+// 内容最大宽度：1440 - 2 * 80 = 1280
+$site-max-width: 1280px;
+
+// 纵向节奏：一屏 = 100svh，内容区上下留白
+$site-nav-height: 72px;
+$site-section-pad-top: 120px;
+$site-section-pad-bottom: 72px;
+$site-section-pad-top-phone: 88px;
+$site-section-pad-bottom-phone: 56px;
+
+// 营销排版阶梯（clamp 跟随视口，不写死断点）
+$site-h1: clamp(38px, 4.8vw, 68px);
+$site-h2: clamp(26px, 2.6vw, 38px);
+$site-h3: 19px;
+$site-lead: 18px;
+$site-body: 16px;
+$site-small: 14px;
+$site-label: 13px;
+
+// 营销站专用深色：偏暖的近黑，不用纯黑，和中性灰形成同一家族的层次
+$site-ink: #17171a;
+$site-ink-soft: #3d3d44;
+$site-ink-muted: #6b6b73; // 4.6:1（白底）
+$site-ink-inverse: #f5f5f4;
+$site-ink-inverse-muted: #a3a3a8;
+
+// 底色：主底纯白，交替底极浅暖灰，深色带用于技术区块
+$site-ground: #ffffff;
+$site-ground-alt: #f6f6f4;
+$site-ground-dark: $site-ink;
+
+// 营销站控件比后台大一号：44px，更符合官网的手感
+$site-btn-height: 44px;
+$site-btn-padding: 24px;

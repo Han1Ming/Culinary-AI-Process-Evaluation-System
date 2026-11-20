@@ -1,0 +1,7 @@
+// 全局样式入口：main.ts 中 import
+// 顺序：令牌 → 基础重置 → 动效 → Element Plus 主题覆盖 → 营销站公共类
+// （Element 覆盖放最后，确保它的优先级高于组件库默认样式）
+@use './base.scss';
+@use './motion.scss';
+@use './element-override.scss';
+@use './site.scss';

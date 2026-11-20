@@ -1,0 +1,95 @@
+import axios from 'axios'
+import type { AxiosError, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
+import { ElMessage } from 'element-plus'
+
+import type { ApiErrorBody, ApiResponse } from '@/types'
+import { API_BASE_URL } from './env'
+import { authHeaders, clearToken } from './token'
+
+/**
+ * Axios 封装
+ * 1. 自动携带 Bearer Token
+ * 2. 自动拆解 { code, data, message }，业务层只拿到 data
+ * 3. 统一错误提示 + 401 跳登录
+ */
+
+const service = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 20000,
+  headers: { 'Content-Type': 'application/json' },
+})
+
+service.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  for (const [key, value] of Object.entries(authHeaders())) {
+    config.headers.set(key, value)
+  }
+  return config
+})
+
+/** 401 只提示一次，避免并发请求刷屏 */
+let redirecting = false
+
+service.interceptors.response.use(
+  (response: AxiosResponse) => response.data,
+  (error: AxiosError<ApiErrorBody>) => {
+    const status = error.response?.status
+    const payload = error.response?.data
+    let message = payload?.message || payload?.detail || error.message
+
+    if (status === 401) {
+      message = '登录状态已失效，请重新登录'
+      if (!redirecting) {
+        redirecting = true
+        clearToken()
+        void import('@/router').then(({ default: router }) => {
+          void router.replace({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
+          redirecting = false
+        })
+      }
+    } else if (status === 403) {
+      message = '当前账号无权访问该资源'
+    } else if (status === 404) {
+      message = '接口不存在，请核对后端路由'
+    } else if (status && status >= 500) {
+      message = '服务器开小差了，请稍后重试'
+    } else if (error.code === 'ECONNABORTED') {
+      message = '请求超时，请检查网络或后端服务'
+    } else if (!error.response) {
+      message = '无法连接后端服务，请确认 FastAPI 已启动'
+    }
+
+    ElMessage.error(message)
+    return Promise.reject(new Error(message))
+  },
+)
+
+/** 拆包：兼容后端直接返回裸数据的场景 */
+function unwrap<T>(payload: ApiResponse<T>): T {
+  if (payload && typeof payload === 'object' && 'code' in payload) {
+    if (payload.code === 0 || payload.code === 200) {
+      return payload.data
+    }
+    ElMessage.error(payload.message || '请求失败')
+    throw new Error(payload.message || '请求失败')
+  }
+  return payload as unknown as T
+}
+
+type Query = Record<string, unknown>
+
+export const http = {
+  get<T>(url: string, params?: Query, config?: AxiosRequestConfig): Promise<T> {
+    return service.get<unknown, ApiResponse<T>>(url, { params, ...config }).then(unwrap)
+  },
+  post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+    return service.post<unknown, ApiResponse<T>>(url, data, config).then(unwrap)
+  },
+  put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+    return service.put<unknown, ApiResponse<T>>(url, data, config).then(unwrap)
+  },
+  delete<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
+    return service.delete<unknown, ApiResponse<T>>(url, config).then(unwrap)
+  },
+}
+
+export default service

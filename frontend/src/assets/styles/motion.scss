@@ -1,0 +1,178 @@
+// ============================================================================
+// 动效层：关键帧 + 可复用的数据动效工具
+// ----------------------------------------------------------------------------
+// 动效原则（决定「丝滑」的三条）：
+//   1. 进场用 $ease-emphasized（快起慢收），状态切换用 $ease-standard（对称）
+//   2. 位移不超过 8px，时长短（140–420ms），宁可「几乎察觉不到」也不要「看动画」
+//   3. 同一屏内的元素按 30–40ms 递增延迟，形成阅读顺序，而非同时蹦出来
+// ============================================================================
+@use './variables.scss' as *;
+
+// ---------- 关键帧 ----------
+@keyframes app-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes app-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes app-shimmer {
+  from {
+    background-position: -180% 0;
+  }
+  to {
+    background-position: 180% 0;
+  }
+}
+
+@keyframes app-pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.86);
+  }
+}
+
+@keyframes app-caret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  95% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes app-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// ---------- 进场工具类 ----------
+// 用法：容器加 v-stagger，子元素加 .animate-in；--i 由指令写入
+// 没有指令时也可手写 style="--i: 2"，间隔默认 34ms
+.animate-in {
+  opacity: 0;
+  animation: app-fade-up $duration-enter $ease-emphasized forwards;
+  animation-delay: calc(var(--i, 0) * var(--stagger-step, 34ms));
+}
+
+.animate-fade {
+  opacity: 0;
+  animation: app-fade-in $duration-base $ease-emphasized forwards;
+  animation-delay: calc(var(--i, 0) * var(--stagger-step, 34ms));
+}
+
+// ---------- 骨架屏 ----------
+// 结构：<span class="sk" style="width: 60%; height: 12px" />
+.sk {
+  display: block;
+  height: 12px;
+  background: linear-gradient(90deg, #f0f0f2 25%, #f8f8f9 37%, #f0f0f2 63%);
+  background-size: 320% 100%;
+  border-radius: $radius-xs;
+  animation: app-shimmer 1.5s $ease-standard infinite;
+}
+
+.sk--circle {
+  border-radius: 50%;
+}
+
+.sk--block {
+  border-radius: $radius-md;
+}
+
+// ---------- 状态点（替代彩色标签，减少彩色面积）----------
+.status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: $color-text-placeholder;
+
+  &--success {
+    background: $color-success-dot;
+  }
+
+  &--warning {
+    background: $color-warning-dot;
+  }
+
+  &--danger {
+    background: $color-danger-dot;
+  }
+
+  &--primary {
+    background: $color-primary;
+  }
+
+  // 运行中：呼吸
+  &--live {
+    animation: app-pulse-dot 1.8s $ease-standard infinite;
+  }
+}
+
+// ---------- 进度条（自绘，可动画生长，不依赖 el-progress）----------
+.meter {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  background: $color-bg-sunken;
+  border-radius: $radius-pill;
+
+  &__fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--value, 0%);
+    background: $color-text-primary;
+    border-radius: inherit;
+    transform-origin: left center;
+    transition: width $duration-slow $ease-emphasized;
+
+    &--primary {
+      background: $color-primary;
+    }
+
+    &--success {
+      background: $color-success-dot;
+    }
+
+    // 进行中的进度：中灰，与轨道拉开对比，但不使用彩色
+    &--muted {
+      background: #a1a1aa;
+    }
+  }
+
+  &--thick {
+    height: 6px;
+  }
+}
+
+// ---------- 表格行进场（配合 v-stagger 或原生渲染）----------
+.row-enter {
+  animation: app-fade-in $duration-base $ease-standard both;
+  animation-delay: calc(var(--i, 0) * 22ms);
+}
