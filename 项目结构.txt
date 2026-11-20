@@ -1,0 +1,76 @@
+culinary-ai-process-evaluation/  
+│
+├── .gitignore                   # Git忽略文件
+├── README.md                    # 项目说明文档
+├── docker-compose.yml           # 整体一键部署编排文件
+│
+├── frontend/                    # 【1. 前端展示层】(Vue 3 + Element Plus + ECharts)
+│   ├── src/                     
+│   │   ├── api/                 # 接口请求封装
+│   │   ├── components/          # 公共组件
+│   │   ├── layout/              # 页面布局
+│   │   ├── router/              # 路由配置
+│   │   ├── store/               # 状态管理 (Pinia)
+│   │   ├── views/               # 页面视图
+│   │   │   ├── dashboard/       # 大屏/首页
+│   │   │   ├── system/          # 用户、角色、权限管理
+│   │   │   ├── base-data/       # 学生、班级、课程管理
+│   │   │   ├── training/        # 实训任务、签到管理
+│   │   │   ├── ai-eval/         # 六大AI评价模块展示页面
+│   │   │   └── ai-qa/           # 【新增】智能问答对话界面（对话框、历史记录）
+│   │   ├── App.vue
+│   │   └── main.js
+│   └── package.json
+│
+├── backend/                     # 【2. 后端业务层】(Python + FastAPI)
+│   ├── app/
+│   │   ├── api/                 
+│   │   │   └── v1/
+│   │   │       ├── auth.py      # 登录认证
+│   │   │       ├── users.py     # 用户管理
+│   │   │       ├── students.py  # 学生管理
+│   │   │       ├── courses.py   # 课程实训
+│   │   │       ├── evaluations.py# 评价记录
+│   │   │       └── qa.py        # 【新增】问答记录与会话管理接口
+│   │   ├── core/                # 核心配置
+│   │   ├── crud/                # 数据库操作逻辑
+│   │   ├── db/                  # 数据库连接与初始化
+│   │   ├── models/              # 数据库表模型 (增加 QA_History 模型)
+│   │   ├── schemas/             # 数据校验模型
+│   │   ├── services/            # 业务逻辑处理
+│   │   └── main.py              # FastAPI 启动入口
+│   └── requirements.txt         
+│
+├── ai-service/                  # 【3. AI算法层】(独立部署，统一API输出)
+│   ├── modules/                 
+│   │   ├── face_attendance/     # 1. 人脸识别签到
+│   │   ├── uniform_compliance/  # 2. 着装规范识别
+│   │   ├── ingredient_prep/     # 3. 食材预处理评价
+│   │   ├── cooking_process/     # 4. 烹饪过程评价
+│   │   ├── dish_analysis/       # 5. 菜肴成品分析
+│   │   ├── comprehensive_eval/  # 6. AI综合评价
+│   │   └── qa_agent/            # 【新增】7. 问答智能体
+│   │       ├── llm_connector.py # 大模型API封装 (通义千问/DeepSeek/OpenAI等)
+│   │       ├── rag_engine.py    # RAG检索增强生成逻辑 (连接向量库)
+│   │       └── prompts.py       # 烹饪助教专属提示词(Prompt)管理
+│   ├── knowledge_base/          # 【新增】本地知识库文件区
+│   │   └── culinary_docs/       # 存放烹饪理论、菜谱、安全规范等PDF/TXT文档
+│   ├── weights/                 # 模型权重文件 (YOLO等)
+│   ├── utils/                   # 图像处理、视频流、文本处理工具
+│   ├── config.py                # AI服务配置文件 (包含API_KEY等环境变量)
+│   └── main.py                  # AI服务启动入口
+│
+├── scripts/                     # 【4. 辅助脚本】
+│   ├── init_db.sql              # 数据库建表及初始化数据 SQL
+│   ├── build_knowledge.py       # 【新增】读取文档并写入向量数据库的脚本
+│   └── download_models.sh       # 下载AI模型权重脚本
+│
+├── docs/                        # 【5. 项目文档】
+│   ├── 烹饪AI过程评价系统项目开发方案.md
+│   ├── api_doc.md               # 接口文档
+│   └── deployment.md            # 部署说明书
+│
+└── deploy/                      # 【6. 部署配置】
+    ├── nginx/                   # Nginx 反向代理配置
+    ├── docker/                  # 各模块的 Dockerfile
+    └── gpu_env.md               # GPU服务器环境配置说明
