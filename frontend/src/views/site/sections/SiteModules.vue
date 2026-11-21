@@ -13,7 +13,7 @@ import { siteModules } from '@/views/site/data'
 <template>
   <section id="modules" class="modules">
     <div class="modules__inner">
-      <header class="section-head">
+      <header v-reveal class="section-head">
         <h2>七大评价模块</h2>
         <p>
           从签到到成绩报告，每个环节独立成一个模块。学校可以一次上全，也可以先上签到与成品分析两个。
@@ -21,7 +21,12 @@ import { siteModules } from '@/views/site/data'
       </header>
 
       <ul class="mod-grid">
-        <li v-for="mod in siteModules" :key="mod.key" class="mod-card">
+        <li
+          v-for="(mod, i) in siteModules"
+          :key="mod.key"
+          v-reveal="{ delay: i * 45 }"
+          class="mod-card"
+        >
           <div class="mod-card__top">
             <span class="mod-card__index">{{ mod.index }}</span>
             <span class="mod-card__state">
@@ -36,7 +41,7 @@ import { siteModules } from '@/views/site/data'
           </ul>
         </li>
 
-        <li class="mod-card mod-card--note">
+        <li v-reveal="{ delay: 315 }" class="mod-card mod-card--note">
           <h3>一套接口</h3>
           <p>七个模块共用统一响应格式与鉴权，新增模块不改动前端框架。</p>
           <RouterLink to="/login" class="mod-card__link">登录查看接口</RouterLink>
@@ -101,12 +106,14 @@ import { siteModules } from '@/views/site/data'
   border: 1px solid $color-border-light;
   border-radius: $radius-lg;
   transition:
-    transform $duration-fast $ease-standard,
-    border-color $duration-fast $ease-standard;
+    // 抬升用 translate 而不是 transform：transform 已经被 v-reveal 用来做进场位移，
+    // 两个都写 transform 时，悬停会打断还没播完的进场
+    translate $duration-hover $ease-out,
+    border-color $duration-hover $ease-out;
 
   &:hover {
     border-color: $color-border-strong;
-    transform: translateY(-2px);
+    translate: 0 -2px;
   }
 
   &__top {

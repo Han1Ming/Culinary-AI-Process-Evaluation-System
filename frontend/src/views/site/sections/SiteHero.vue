@@ -88,8 +88,9 @@ function goModules() {
   document.querySelector('#modules')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+/** 首屏主行动统一指向留资页：跳 /register 是学生开户流程，采购方走进去就断了 */
 function goDemo() {
-  void router.push('/register')
+  void router.push('/demo')
 }
 </script>
 
@@ -124,7 +125,7 @@ function goDemo() {
       </div>
 
       <div class="hero__media" @mouseenter="paused = true" @mouseleave="paused = false">
-        <figure class="hero__stage">
+        <figure v-parallax="52" class="hero__stage">
           <img
             v-for="(photo, i) in photos"
             :key="photo.src"
@@ -259,6 +260,10 @@ function goDemo() {
     background: $site-ground-alt;
     border-radius: 14px;
     box-shadow: 0 30px 60px -32px rgba(23, 23, 26, 0.32);
+    // 视差：位移由 v-parallax 写进 --plx（整段行程 52px，实际 ±26px）。
+    // 只给画面加，文字不动——正文跟着滚动飘是阅读干扰。
+    transform: translate3d(0, var(--plx, 0px), 0);
+    will-change: transform;
   }
 
   &__shot {

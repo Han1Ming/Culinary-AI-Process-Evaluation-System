@@ -45,7 +45,7 @@ const points = [
       </div>
 
       <div class="product__shots">
-        <figure class="shot shot--main">
+        <figure v-parallax="36" class="shot shot--main">
           <img
             :src="dashboardShot"
             alt="系统工作台界面：顶部为班级与日期筛选，中部为四项统计与签到率环形图，右侧为待处理异常列表"
@@ -150,6 +150,10 @@ const points = [
   border: 1px solid $color-border;
   border-radius: $radius-lg;
   box-shadow: 0 1px 2px rgba(23, 23, 26, 0.04);
+  // 视差行程 36px（±18px），由 v-parallax 写进 --plx。
+  // 缩放交给内部的 img，外层只负责位移，两者不抢同一个属性。
+  transform: translate3d(0, var(--plx, 0px), 0);
+  will-change: transform;
 
   img {
     display: block;

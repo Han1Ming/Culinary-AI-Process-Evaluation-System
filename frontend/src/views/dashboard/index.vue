@@ -7,8 +7,10 @@ import AppSkeleton from '@/components/AppSkeleton.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatCard from '@/components/StatCard.vue'
 import { fetchDashboardOverview, fetchMyOverview, fetchUsers } from '@/api/user'
+import { fetchSummaryRoster } from '@/api/summary'
 import { useRole } from '@/composables/useRole'
 import { formatDateTime } from '@/utils/format'
+import type { SummaryStudent } from '@/types/summary'
 import type {
   ActivityItem,
   ActivityType,
@@ -46,6 +48,15 @@ const overview = ref<DashboardOverview>({
 const my = ref<MyOverview | null>(null)
 const users = ref<User[]>([])
 
+/**
+ * 教师端的「待复核」直接取综合评价的名单，不另造一份数据。
+ * 教师关心的是「今天还有谁没归档」，而不是「六个模块对接了几个」——
+ * 后者是交付进度，属于管理员和验收材料，不该占教师的首屏。
+ */
+const roster = ref<SummaryStudent[]>([])
+const pendingAll = computed(() => roster.value.filter((s) => !s.confirmed))
+const pendingReviews = computed(() => pendingAll.value.slice(0, 5))
+
 /** 环形图从 0 生长到目标值，需要先把进度置 0 再赋值 */
 const ringProgress = ref(0)
 const RADIUS = 52
@@ -56,7 +67,7 @@ const shortcuts = computed(() => {
   if (isStudent.value) {
     return [
       { title: '人脸签到', hint: '进工位先签到', icon: 'Camera', path: '/face-checkin' },
-      { title: '本节课菜谱', hint: '含 AI 难点标注', icon: 'Notebook', path: '/courses' },
+      { title: '本节课菜谱', hint: '含难点标注', icon: 'Notebook', path: '/courses' },
       { title: '上传成品', hint: '出锅 5 分钟内拍', icon: 'Dish', path: '/modules/dish' },
       { title: '我的评价', hint: '只看自己的分数', icon: 'DataAnalysis', path: '/modules/summary' },
     ]
@@ -71,8 +82,8 @@ const shortcuts = computed(() => {
   }
   return [
     { title: '课程管理', hint: '上传菜谱、布置实训', icon: 'Notebook', path: '/courses' },
-    { title: 'AI 评价中心', hint: '七大评价模块', icon: 'DataAnalysis', path: '/ai-eval' },
-    { title: 'AI 综合评价', hint: '复核 · 归档 · 导出', icon: 'Document', path: '/modules/summary' },
+    { title: '评价中心', hint: '七大评价模块', icon: 'DataAnalysis', path: '/ai-eval' },
+    { title: '综合评价', hint: '复核 · 归档 · 导出', icon: 'Document', path: '/modules/summary' },
     { title: '人脸签到', hint: '代签核验与补录', icon: 'Camera', path: '/face-checkin' },
   ]
 })
@@ -163,6 +174,13 @@ async function loadData(): Promise<void> {
       if (isAdmin.value) {
         const page = await fetchUsers({ page: 1, pageSize: 200, keyword: '', role: '', status: '' })
         users.value = page.list
+      } else {
+        // 取不到名单不该拖垮整个工作台，单独兜底
+        try {
+          roster.value = (await fetchSummaryRoster()).students
+        } catch {
+          roster.value = []
+        }
       }
       await nextTick()
       // 环图增长：与卡片进场错开，形成「数据落位」的收尾动作
@@ -252,7 +270,7 @@ onMounted(loadData)
               </div>
               <div class="lesson__actions">
                 <el-button @click="go(`/courses/${my.course.id}`)">查看菜谱</el-button>
-                <el-button type="primary" @click="go(`/courses/${my.course.id}`)">AI 解析难点</el-button>
+                <el-button type="primary" @click="go(`/courses/${my.course.id}`)">解析难点</el-button>
               </div>
             </div>
             <p v-else class="empty-line">还没有安排课程，等教师上传菜谱后这里会出现</p>
@@ -325,7 +343,7 @@ onMounted(loadData)
           <!-- 我的动态 -->
           <section class="app-card">
             <div class="card-head">
-              <h2 class="card-head__title">最近发生</h2>
+              <h2 class="card-head__title">最近记录</h2>
             </div>
 
             <AppSkeleton v-if="showSkeleton" variant="list" :count="3" />
@@ -384,7 +402,7 @@ onMounted(loadData)
             <div class="card-head">
               <div>
                 <h2 class="card-head__title">账号构成</h2>
-                <p class="card-head__desc">共 {{ users.length }} 个账号，学生占多数属正常</p>
+                <p class="card-head__desc">共 {{ users.length }} 个账号</p>
               </div>
               <el-button link type="primary" @click="go('/system/user')">用户管理</el-button>
             </div>
@@ -403,8 +421,8 @@ onMounted(loadData)
             </ul>
           </section>
 
-          <!-- 模块进度 -->
-          <section class="app-card">
+          <!-- 模块进度：交付进度，只给管理员看 -->
+          <section v-if="isAdmin" class="app-card">
             <div class="card-head">
               <div>
                 <h2 class="card-head__title">评价模块进度</h2>
@@ -437,6 +455,32 @@ onMounted(loadData)
                 </div>
               </li>
             </ul>
+          </section>
+
+          <!-- 待复核：教师首屏要回答的是「还有谁没归档」，不是模块上线了几个 -->
+          <section v-else class="app-card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-head__title">待复核</h2>
+                <p class="card-head__desc">
+                  {{ pendingAll.length }} 份未归档<template v-if="pendingAll.length > 5">，先列前 5 份</template>
+                </p>
+              </div>
+              <el-button link type="primary" @click="go('/modules/summary')">去归档</el-button>
+            </div>
+
+            <AppSkeleton v-if="showSkeleton" variant="list" :count="4" />
+            <ul v-else-if="pendingReviews.length" class="reviews animate-fade">
+              <li v-for="stu in pendingReviews" :key="stu.id">
+                <button type="button" class="review" @click="go('/modules/summary')">
+                  <span class="review__name">{{ stu.name }}</span>
+                  <span class="review__meta num">{{ stu.studentNo }} · 工位 {{ stu.seat }}</span>
+                  <span class="review__state">未归档</span>
+                  <el-icon class="review__arrow"><ArrowRight /></el-icon>
+                </button>
+              </li>
+            </ul>
+            <p v-else class="empty-line">本节课的成绩都已归档</p>
           </section>
 
           <!-- 近期动态 -->
@@ -824,6 +868,65 @@ onMounted(loadData)
     font-size: $font-size-xs;
     color: $color-text-secondary;
     text-align: right;
+  }
+}
+
+// ---------- 待复核 ----------
+.reviews {
+  li + li {
+    border-top: 1px solid $color-border-light;
+  }
+}
+
+.review {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 10px 6px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: $radius-sm;
+  transition: background-color $duration-fast $ease-standard;
+
+  &:hover {
+    background: $color-bg-hover;
+
+    .review__arrow {
+      color: $color-text-secondary;
+      transform: translateX(2px);
+    }
+  }
+
+  &__name {
+    flex-shrink: 0;
+    font-size: $font-size-sm;
+    color: $color-text-primary;
+  }
+
+  &__meta {
+    flex: 1;
+    overflow: hidden;
+    font-size: 11px;
+    color: $color-text-placeholder;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__state {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: $color-warning;
+  }
+
+  &__arrow {
+    flex: 0 0 12px;
+    font-size: 12px;
+    color: $color-text-placeholder;
+    transition: transform $duration-fast $ease-standard, color $duration-fast $ease-standard;
   }
 }
 

@@ -155,7 +155,7 @@ export const mockActivities: ActivityItem[] = [
   {
     id: 'act_3',
     type: 'chat',
-    title: 'AI 老师课后答疑 18 次',
+    title: '课后答疑 18 次',
     description: '高频问题：焯水时长控制、装盘色彩搭配',
     time: '2026-11-19 21:40',
     actor: '系统',
@@ -184,7 +184,7 @@ export const mockModules: EvaluationModule[] = [
   { key: 'ingredient', name: '食材预处理评价', description: '刀工动作与切丝频率分析', progress: 45, ready: false },
   { key: 'cooking', name: '烹饪过程评价', description: '多路视频环节识别与计时', progress: 40, ready: false },
   { key: 'dish', name: '菜肴成品分析', description: '摆盘、色彩与工艺多模态评分', progress: 35, ready: false },
-  { key: 'summary', name: 'AI 综合评价', description: '汇总各环节生成综合成绩', progress: 30, ready: false },
+  { key: 'summary', name: '综合评价', description: '汇总各环节生成综合成绩', progress: 30, ready: false },
 ]
 
 export const mockDashboard: DashboardOverview = {
@@ -229,7 +229,7 @@ export const mockMyOverview: MyOverview = {
     {
       id: 'todo_1',
       title: '阅读本节课菜谱',
-      hint: '糖醋里脊 · 含 AI 难点标注',
+      hint: '糖醋里脊 · 含难点标注',
       to: '/courses/1',
       done: true,
     },

@@ -11,6 +11,8 @@ import App from './App.vue'
 import router from './router'
 import pinia from './stores'
 import { vStagger } from './directives/stagger'
+import { vReveal } from './directives/reveal'
+import { vParallax } from './directives/parallax'
 
 const app = createApp(App)
 
@@ -19,8 +21,10 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
 
-// 全局指令：v-stagger 列表顺序进场
+// 全局指令：v-stagger 列表顺序进场；v-reveal 滚动到位才进场；v-parallax 轻微视差
 app.directive('stagger', vStagger)
+app.directive('reveal', vReveal)
+app.directive('parallax', vParallax)
 
 app.use(pinia)
 app.use(router)

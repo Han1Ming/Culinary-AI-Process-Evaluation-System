@@ -11,11 +11,12 @@
  *   · 移动端菜单为全屏覆盖，不是抽屉
  */
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterView, useRouter } from 'vue-router'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 
 import { navLinks } from '@/views/site/data'
 
 const router = useRouter()
+const route = useRoute()
 const menuOpen = ref(false)
 /** 当前正在阅读的区块，用于导航高亮 */
 const activeHref = ref('')
@@ -30,13 +31,41 @@ function goLogin() {
 
 function goContact() {
   menuOpen.value = false
-  void router.push('/register')
+  void router.push('/demo')
 }
 
-function jump(href: string) {
+/**
+ * 等元素出现再滚。
+ * 首页是异步路由（`() => import(...)`），`router.push('/')` 返回时组件可能
+ * 还在一帧之后才挂上来，此刻 querySelector 拿到 null，点了就是没反应。
+ * 用 rAF 轮询而不是固定延时：通常是 1–2 帧就好了，固定 300ms 会显得迟钝。
+ */
+function untilExists(selector: string, timeout = 1200): Promise<void> {
+  return new Promise((resolve) => {
+    const start = performance.now()
+    const tick = () => {
+      if (document.querySelector(selector) || performance.now() - start > timeout) resolve()
+      else requestAnimationFrame(tick)
+    }
+    tick()
+  })
+}
+
+/**
+ * 锚点跳转。
+ * 导航在 /demo、/privacy 这些子页面上同样可见，所以先回首页再滚，
+ * 否则 querySelector 找不到节点，点了没反应。
+ */
+async function jump(href: string) {
   menuOpen.value = false
-  const el = document.querySelector(href)
-  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  if (route.path !== '/') {
+    await router.push('/')
+    await untilExists(href)
+  }
+  document.querySelector(href)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  // 直接落位高亮，不依赖 scroll 事件推断：滚动到位后可能只剩一帧，
+  // 用推断的方式会在快速点击时停在上一节
+  activeHref.value = href
 }
 
 // 移动端菜单展开时锁住 body 滚动，避免背后的页面跟着动
@@ -45,19 +74,29 @@ watch(menuOpen, (isOpen) => {
 })
 
 /**
- * 导航高亮：算出「最后一个已经越过导航下沿的区块」。
+ * 导航高亮：取「已越过导航下沿、且离导航下沿最近的区块」。
+ *
  * 用 scroll + rAF 而不是 IntersectionObserver——观察器的回调在快速滚动时
  * 会集中在动画帧末尾触发，高亮切换比内容慢半拍，观感上像卡了一下。
+ *
+ * 为什么是「最近」而不是「最后一个」：浏览器恢复滚动位置、或用户从外链
+ * 直接落在页面中间时，会有多个区块同时位于基准线以上；取最近的那个才与
+ * 眼睛看到的一致。前提是 navLinks 的顺序必须与页面 DOM 顺序一致。
  */
 let scrollRaf = 0
 function syncActive() {
   cancelAnimationFrame(scrollRaf)
   scrollRaf = requestAnimationFrame(() => {
-    // 基准线 = 导航高度 + 一点余量，让高亮在区块贴上来时切换
     let current = ''
+    let nearest = Number.NEGATIVE_INFINITY
     for (const link of navLinks) {
       const el = document.getElementById(link.href.slice(1))
-      if (el && el.getBoundingClientRect().top <= NAV_LINE) current = link.href
+      if (!el) continue
+      const top = el.getBoundingClientRect().top
+      if (top <= NAV_LINE && top > nearest) {
+        nearest = top
+        current = link.href
+      }
     }
     activeHref.value = current
   })
@@ -181,19 +220,24 @@ onBeforeUnmount(() => {
           <div class="foot-col">
             <h3>产品</h3>
             <button type="button" @click="jump('#modules')">评价模块</button>
+            <button type="button" @click="jump('#pricing')">定价方案</button>
             <button type="button" @click="jump('#flow')">课堂流程</button>
             <button type="button" @click="jump('#product')">系统界面</button>
+            <button type="button" @click="jump('#scenes')">应用场景</button>
           </div>
           <div class="foot-col">
-            <h3>技术</h3>
+            <h3>实施</h3>
+            <button type="button" @click="jump('#delivery')">四周上线</button>
+            <button type="button" @click="jump('#delivery')">验收指标</button>
             <button type="button" @click="jump('#integration')">接口对接</button>
-            <button type="button" @click="jump('#integration')">部署要求</button>
             <button type="button" @click="jump('#faq')">常见问题</button>
           </div>
           <div class="foot-col">
-            <h3>账号</h3>
+            <h3>账号与条款</h3>
             <button type="button" @click="goLogin">登录系统</button>
-            <button type="button" @click="goContact">申请试用</button>
+            <button type="button" @click="goContact">预约演示</button>
+            <button type="button" @click="router.push('/privacy')">隐私政策</button>
+            <button type="button" @click="router.push('/terms')">服务条款</button>
           </div>
         </div>
       </div>

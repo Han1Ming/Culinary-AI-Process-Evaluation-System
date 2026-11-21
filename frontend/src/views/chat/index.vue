@@ -381,7 +381,7 @@ function handleKeydown(event: KeyboardEvent): void {
             </ul>
 
             <p class="welcome__foot">
-              给的是工艺建议与练习方法；具体得分在「AI 综合评价」里按环节拆开看，这里不报分数。
+              给的是工艺建议与练习方法；具体得分在「综合评价」里按环节拆开看，这里不报分数。
             </p>
           </div>
 

@@ -131,7 +131,7 @@ export const MODULE_ACCESS: ModuleAccessRow[] = [
     admin: { level: 'manage', note: '只看统计' },
   },
   {
-    module: 'AI 综合评价',
+    module: '综合评价',
     path: '/modules/summary',
     student: { level: 'use', note: '仅本人报告' },
     teacher: { level: 'review', note: '复核、归档、导出' },

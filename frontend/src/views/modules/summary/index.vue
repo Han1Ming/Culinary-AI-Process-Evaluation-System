@@ -1,105 +1,136 @@
 <script setup lang="ts">
 /**
- * AI 综合评价
+ * 综合评价
  * ----------------------------------------------------------------------------
  * 把前五个模块的结果按权重合成总分。左侧是班级名单，右侧是选中学生的
  * 分环节拆分——教师复核时关心的不是总分，而是「这一分是怎么来的」。
  *
- * 角色差异：学生只看到自己的报告（看不到班级名单，也看不到别人的分数），
- * 教师与管理员才有名单、复核、归档与导出。教师的现场扣分单独一段展示，
- * 不和 AI 分数混在一起，避免「这一分谁给的」说不清。
+ * 角色差异（三条工作流，不是一个页面的开关）：
+ *   学生 —— 只看自己的报告，没有名单，也没有别人的分数；
+ *   教师 —— 本节课的班，逐人复核、归档，导出全班成绩单；
+ *   管理员 —— 全站范围，可切班查看，导出跨班成绩单；
+ * 三者都能导出「单人报告」：A4 打印页，浏览器里可直接另存为 PDF。
+ *
+ * 导出为什么放在前端做：CSV 与打印都不依赖后端，且保证「导出的就是屏幕上这份」。
+ * 后端若要改发 xlsx，只需替换本页的 downloadCsv 调用，见 docs/后端开发任务书.md。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import ModuleShell from '@/components/ModuleShell.vue'
+import AppSkeleton from '@/components/AppSkeleton.vue'
+import { archiveSummary, fetchSummaryRoster } from '@/api/summary'
 import { useRole } from '@/composables/useRole'
 import { useAuthStore } from '@/stores/auth'
 import { useReviewStore } from '@/stores/review'
+import { downloadCsv, safeFilename } from '@/utils/export'
+import type { CsvColumn } from '@/utils/export'
+import type { SummaryRoster, SummaryStudent } from '@/types/summary'
 
-interface StageScore {
-  key: string
-  label: string
-  weight: number
-  score: number
-  /** 该环节的原始记录数，用于说明数据来源 */
-  records: number
-}
-
-interface StudentReport {
-  id: number
-  name: string
-  studentNo: string
-  className: string
-  stages: StageScore[]
-  confirmed: boolean
-}
-
-function build(
-  id: number,
-  name: string,
-  studentNo: string,
-  className: string,
-  scores: number[],
-  confirmed = false,
-): StudentReport {
-  const labels = ['签到与着装', '食材预处理', '烹饪过程', '菜肴成品', '课堂问答']
-  const weights = [0.15, 0.2, 0.3, 0.3, 0.05]
-  return {
-    id,
-    name,
-    studentNo,
-    className,
-    confirmed,
-    stages: labels.map((label, i) => ({
-      key: `s${i}`,
-      label,
-      weight: weights[i],
-      score: scores[i],
-      records: [1, 12, 6, 1, 4][i],
-    })),
-  }
-}
-
-const students = ref<StudentReport[]>([
-  build(1001, '陈子豪', '2023010101', '烹饪工艺与营养 2301', [100, 91, 88, 90, 95], true),
-  build(1002, '李思影', '2023010102', '烹饪工艺与营养 2301', [100, 86, 92, 87, 80]),
-  build(1003, '王皓然', '2023010128', '西餐工艺 2302', [92, 78, 74, 82, 70]),
-  build(1004, '赵一诺', '2023010133', '烹饪工艺与营养 2301', [100, 95, 90, 93, 88], true),
-  build(1005, '周与同', '2023010140', '西餐工艺 2302', [85, 70, 66, 74, 60]),
-  build(1006, '吴思远', '2023010142', '烹饪工艺与营养 2301', [100, 88, 84, 86, 92]),
-])
-
-const activeId = ref(1001)
-const active = computed(() => students.value.find((s) => s.id === activeId.value) ?? students.value[0])
-
+const router = useRouter()
 const auth = useAuthStore()
 const reviewStore = useReviewStore()
-const { can, isStudent } = useRole()
+const { can, isStudent, isAdmin } = useRole()
 
 /** 班级名单与他人成绩只对教师 / 管理员开放 */
 const canSeeClass = computed(() => can('summary.class'))
 
+const loading = ref(true)
+const roster = ref<SummaryRoster | null>(null)
+const students = computed<SummaryStudent[]>(() => roster.value?.students ?? [])
+const task = computed(() => roster.value?.task ?? null)
+
+/** 页头副标题写本次实训的事实，不写功能说明——功能看按钮就懂 */
+const subtitle = computed(() => {
+  const info = task.value
+  if (!info) return '五个环节按权重合成总分'
+  return `${info.courseTitle} · ${info.lessonAt} · 任课教师 ${info.teacher}`
+})
+
+/** 'all' 只对管理员开放；教师默认锁在本节课的班 */
+const classFilter = ref<number | 'all'>('all')
+const activeId = ref(0)
+
+const classOptions = computed(() => {
+  const map = new Map<number, string>()
+  for (const stu of students.value) map.set(stu.classId, stu.className)
+  return [...map.entries()].map(([id, name]) => ({ id, name }))
+})
+
 /** 学生本人：按学号对上号，对不上就取第一条，避免空白页 */
-const selfStudent = computed(
-  () => students.value.find((s) => s.studentNo === auth.user?.studentNo) ?? students.value[0],
+const selfStudents = computed<SummaryStudent[]>(() => {
+  const self = students.value.find((stu) => stu.studentNo === auth.user?.studentNo)
+  return self ? [self] : students.value.slice(0, 1)
+})
+
+/**
+ * 导出与列表都读这里：
+ * 教师 / 管理员按班级筛选；学生只有自己一行——这条边界不能只在模板里 v-if，
+ * 否则「导出我的成绩」会把全班导出去。
+ */
+const visibleStudents = computed<SummaryStudent[]>(() => {
+  if (!canSeeClass.value) return selfStudents.value
+  return classFilter.value === 'all'
+    ? students.value
+    : students.value.filter((stu) => stu.classId === classFilter.value)
+})
+
+const active = computed(
+  () => visibleStudents.value.find((s) => s.id === activeId.value) ?? visibleStudents.value[0],
 )
 
-onMounted(() => {
-  if (!canSeeClass.value) activeId.value = selfStudent.value.id
+/** 导出范围里不止一个班时才加「班级」列，单班导出不摆重复列 */
+const showClassColumn = computed(
+  () => new Set(visibleStudents.value.map((s) => s.classId)).size > 1,
+)
+
+const rangeLabel = computed(() => {
+  if (classFilter.value === 'all') return '全部班级'
+  return classOptions.value.find((opt) => opt.id === classFilter.value)?.name ?? '班级'
 })
+
+async function load(): Promise<void> {
+  loading.value = true
+  try {
+    roster.value = await fetchSummaryRoster()
+    if (canSeeClass.value) {
+      // 教师的默认范围 = 本节课的班；管理员看全站
+      const taskClass = roster.value.students.find(
+        (s) => s.className === roster.value?.task.className,
+      )
+      classFilter.value = isAdmin.value || !taskClass ? 'all' : taskClass.classId
+    }
+    activeId.value = visibleStudents.value[0]?.id ?? 0
+  } catch {
+    ElMessage.error('综合评价数据加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(load)
+
+/** 切班后如果当前选中的人不在范围内，落到该班第一人，避免右侧空白 */
+watch(classFilter, () => {
+  if (!visibleStudents.value.some((s) => s.id === activeId.value)) {
+    activeId.value = visibleStudents.value[0]?.id ?? 0
+  }
+})
+
+/* ------------------------------ 分数 ------------------------------ */
 
 /** 教师的现场扣分（本项目里由各评价模块的「教师复核」写入） */
 const deductions = computed(() => reviewStore.listBy(active.value?.id ?? 0))
 const deductedPoints = computed(() => deductions.value.reduce((sum, d) => sum + d.points, 0))
 
-function total(s: StudentReport): number {
+function weighted(s: SummaryStudent): number {
   return Math.round(s.stages.reduce((sum, st) => sum + st.score * st.weight, 0))
 }
 
-/** 扣分后的最终分，最低 0 */
-function finalScore(s: StudentReport): number {
-  return Math.max(0, total(s) - reviewStore.sumBy(s.id))
+/** 加权分扣掉教师现场分，最低 0 */
+function finalScore(s: SummaryStudent): number {
+  return Math.max(0, weighted(s) - reviewStore.sumBy(s.id))
 }
 
 function grade(score: number): string {
@@ -110,54 +141,173 @@ function grade(score: number): string {
   return '不及格'
 }
 
-function confirmScore(): void {
-  if (!active.value) return
-  active.value.confirmed = true
-  ElMessage.success(`已归档 ${active.value.name} 的实训成绩`)
+/* ------------------------------ 归档 ------------------------------ */
+
+const archiving = ref(false)
+
+async function confirmScore(): Promise<void> {
+  const student = active.value
+  if (!student) return
+  if (student.confirmed) {
+    ElMessage.warning(`${student.name} 的成绩已归档，归档后不再变动`)
+    return
+  }
+  archiving.value = true
+  try {
+    const at = await archiveSummary(student.id)
+    student.confirmed = true
+    student.archivedAt = at
+    ElMessage.success(`已归档 ${student.name} 的实训成绩 · ${at}`)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '归档失败，请稍后重试')
+  } finally {
+    archiving.value = false
+  }
 }
+
+/* ------------------------------ 导出 ------------------------------ */
+
+interface ScoreRow {
+  student: SummaryStudent
+  weighted: number
+  deduct: number
+  final: number
+}
+
+/** 一行一个学生：五个环节得分 + 教师扣分 + 总分，够教务直接入库 */
+const scoreColumns = computed<CsvColumn<ScoreRow>[]>(() => {
+  const labels = students.value[0]?.stages.map((stage) => stage.label) ?? []
+  const columns: CsvColumn<ScoreRow>[] = [
+    { header: '学号', value: (row) => row.student.studentNo },
+    { header: '姓名', value: (row) => row.student.name },
+  ]
+  if (showClassColumn.value) {
+    columns.push({ header: '班级', value: (row) => row.student.className })
+  }
+  columns.push({ header: '工位', value: (row) => row.student.seat })
+  labels.forEach((label, index) => {
+    columns.push({
+      header: label,
+      value: (row) => row.student.stages[index]?.score ?? '',
+    })
+  })
+  columns.push(
+    { header: '加权分', value: (row) => row.weighted },
+    { header: '教师扣分', value: (row) => row.deduct },
+    { header: '总分', value: (row) => row.final },
+    { header: '等级', value: (row) => grade(row.final) },
+    { header: '状态', value: (row) => (row.student.confirmed ? '已归档' : '未归档') },
+    { header: '归档时间', value: (row) => row.student.archivedAt ?? '' },
+  )
+  return columns
+})
+
+function stamp(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`
+}
+
+const exporting = ref(false)
+
+async function exportScores(): Promise<void> {
+  const list = visibleStudents.value
+  if (!list.length) {
+    ElMessage.warning('当前范围没有可导出的成绩')
+    return
+  }
+  exporting.value = true
+  try {
+    const rows: ScoreRow[] = list.map((student) => {
+      const deduct = reviewStore.sumBy(student.id)
+      const whole = weighted(student)
+      return { student, weighted: whole, deduct, final: Math.max(0, whole - deduct) }
+    })
+    const scope = !canSeeClass.value
+      ? '我的成绩'
+      : isAdmin.value && classFilter.value === 'all'
+        ? '全站'
+        : rangeLabel.value
+    downloadCsv(safeFilename(`综合评价-${scope}-${stamp()}`), scoreColumns.value, rows)
+    ElMessage.success(
+      canSeeClass.value ? `已导出 ${rows.length} 名学生 · ${scope}` : '已导出你的成绩单',
+    )
+  } finally {
+    exporting.value = false
+  }
+}
+
+/** 单人报告开在新标签页：打印是整页行为，塞进当前页会把正在看的名单冲掉 */
+const reportHref = computed(() => {
+  const id = active.value?.id
+  if (!id) return ''
+  return router.resolve({ name: 'SummaryReport', params: { studentId: String(id) } }).href
+})
 
 const endpoints = [
   {
-    name: '生成报告',
-    method: 'POST' as const,
-    path: '/api/modules/summary/report',
-    note: '汇总各模块结果并按权重计算总分，同时生成可下载的报告文件。',
-    request: `{
-  "task_id": "task_20261120_01",
-  "student_id": 1001,
-  "rubric_id": 3
-}`,
+    name: '名单与得分',
+    method: 'GET' as const,
+    path: '/v1/summary/roster',
+    note: '按任务返回本节课的班级与学生各环节得分；教师端据此锁定默认班级。',
+    request: `GET /v1/summary/roster?taskId=task_20261121_01&classId=12`,
     response: `{
   "code": 0,
   "data": {
-    "total": 91,
-    "grade": "优秀",
-    "stages": [
-      { "key": "face",       "score": 100, "weight": 0.15 },
-      { "key": "ingredient", "score": 91,  "weight": 0.20 }
-    ],
-    "report_url": "https://oss.example.com/report/1001.pdf"
+    "task": {
+      "id": "task_20261121_01",
+      "courseTitle": "《中式热菜制作》—— 糖醋里脊",
+      "className": "烹饪工艺与营养 2301",
+      "lessonAt": "2026-11-21 08:00",
+      "teacher": "陈立群"
+    },
+    "students": [
+      {
+        "id": 1001,
+        "name": "陈子豪",
+        "studentNo": "2023010101",
+        "classId": 12,
+        "className": "烹饪工艺与营养 2301",
+        "seat": "02",
+        "confirmed": true,
+        "archivedAt": "2026-11-21 09:32",
+        "stages": [
+          { "key": "checkin",    "label": "签到与着装", "weight": 0.15, "score": 100, "records": 1 },
+          { "key": "ingredient", "label": "食材预处理", "weight": 0.20, "score": 91,  "records": 12 }
+        ]
+      }
+    ]
   },
   "message": "ok"
 }`,
   },
   {
-    name: '班级统计',
+    name: '单人报告',
     method: 'GET' as const,
-    path: '/api/modules/summary/class',
-    note: '按班级查平均分、分布与异常学生，用于教研复盘。',
-    request: `{
-  "class_id": 12,
-  "task_id": "task_20261120_01"
-}`,
+    path: '/v1/summary/{studentId}/report',
+    note: '报告页取这份数据渲染；total 为加权分，教师现场扣分由前端从复核记录合成。',
+    request: `GET /v1/summary/1001/report?taskId=task_20261121_01`,
     response: `{
   "code": 0,
   "data": {
-    "avg": 82.4,
-    "pass_rate": 0.94,
-    "distribution": { "excellent": 6, "good": 18, "medium": 9, "fail": 2 },
-    "low_score_students": [1005]
+    "student": { "id": 1001, "name": "陈子豪", "studentNo": "2023010101" },
+    "total": 91,
+    "grade": "优秀",
+    "task": { "id": "task_20261121_01", "courseTitle": "《中式热菜制作》—— 糖醋里脊" },
+    "generatedAt": "2026-11-21 13:40"
   },
+  "message": "ok"
+}`,
+  },
+  {
+    name: '归档',
+    method: 'POST' as const,
+    path: '/v1/summary/{studentId}/archive',
+    note: '锁定分数并生成快照，之后调整权重不追溯；低于 60 分应先复核。',
+    request: `{ "taskId": "task_20261121_01" }`,
+    response: `{
+  "code": 0,
+  "data": { "archivedAt": "2026-11-21 09:32", "snapshotId": 88012 },
   "message": "ok"
 }`,
   },
@@ -166,19 +316,37 @@ const endpoints = [
 
 <template>
   <ModuleShell
-    title="AI 综合评价"
-    subtitle="汇总各环节结果，按权重生成个人实训成绩"
+    title="综合评价"
+    :subtitle="subtitle"
     :endpoints="endpoints"
     :ready="false"
-    state-text="待对接"
+    state-text="导出可用 · 评分待接"
     :reviewable="false"
   >
     <template #actions>
       <template v-if="canSeeClass">
-        <el-button @click="confirmScore">归档当前成绩</el-button>
-        <el-button type="primary">导出班级成绩</el-button>
+        <el-button :loading="exporting" @click="exportScores">
+          {{ isAdmin && classFilter === 'all' ? '导出全站成绩' : '导出班级成绩' }}
+        </el-button>
+        <!-- 用真链接而不是 window.open：带 noopener 的 window.open 会被拦截，
+             返回 null 且没有任何提示，点了像没反应 -->
+        <el-button tag="a" :href="reportHref || undefined" target="_blank" rel="noopener">
+          导出当前报告
+        </el-button>
+        <el-button type="primary" :loading="archiving" @click="confirmScore">归档当前成绩</el-button>
       </template>
-      <el-button v-else>导出我的报告</el-button>
+      <template v-else>
+        <el-button :loading="exporting" @click="exportScores">导出我的成绩</el-button>
+        <el-button
+          tag="a"
+          type="primary"
+          :href="reportHref || undefined"
+          target="_blank"
+          rel="noopener"
+        >
+          导出我的报告
+        </el-button>
+      </template>
     </template>
 
     <!-- 学生视角：只说明能看到什么，避免让人误以为名单加载失败 -->
@@ -187,17 +355,32 @@ const endpoints = [
       这里是你的实训成绩，只含本人数据；班级排名与同学成绩不对学生开放。
     </p>
 
-    <div class="summary-grid" :class="{ 'is-solo': !canSeeClass }">
+    <AppSkeleton v-if="loading" variant="list" :count="5" />
+
+    <div v-else class="summary-grid" :class="{ 'is-solo': !canSeeClass }">
       <!-- 名单（仅教师 / 管理员） -->
       <section v-if="canSeeClass" class="app-card list-card">
         <header class="card-head">
-          <h2>班级名单</h2>
-          <span class="card-head__hint">{{ students.length }} 人 · 烹饪工艺与营养 2301</span>
+          <div>
+            <h2 class="card-head__title">班级名单</h2>
+            <p class="card-head__desc">
+              {{ visibleStudents.length }} 人 · {{ rangeLabel }}
+            </p>
+          </div>
+          <el-select v-model="classFilter" size="small" class="class-filter">
+            <el-option v-if="isAdmin" label="全部班级" value="all" />
+            <el-option
+              v-for="opt in classOptions"
+              :key="opt.id"
+              :label="opt.name"
+              :value="opt.id"
+            />
+          </el-select>
         </header>
 
         <ul class="stu-list">
           <li
-            v-for="stu in students"
+            v-for="stu in visibleStudents"
             :key="stu.id"
             class="stu"
             :class="{ 'is-active': stu.id === activeId }"
@@ -208,7 +391,7 @@ const endpoints = [
                 {{ stu.name }}
                 <span v-if="stu.confirmed" class="stu__flag">已归档</span>
               </p>
-              <span class="stu__meta num">{{ stu.studentNo }} · {{ stu.className }}</span>
+              <span class="stu__meta num">{{ stu.studentNo }} · 工位 {{ stu.seat }}</span>
             </div>
             <div class="stu__score">
               <strong class="num">{{ finalScore(stu) }}</strong>
@@ -223,7 +406,9 @@ const endpoints = [
         <header class="detail-head">
           <div>
             <h2>{{ active.name }}</h2>
-            <p class="num">{{ active.studentNo }} · {{ active.className }}</p>
+            <p class="num">
+              {{ active.studentNo }} · {{ active.className }} · 工位 {{ active.seat }}
+            </p>
           </div>
           <div class="detail-total">
             <strong class="num">{{ finalScore(active) }}</strong>
@@ -238,7 +423,7 @@ const endpoints = [
           <li v-for="stage in active.stages" :key="stage.key" class="stage">
             <div class="stage__row">
               <span class="stage__label">{{ stage.label }}</span>
-              <span class="stage__meta num">权重 {{ Math.round(stage.weight * 100) }}%</span>
+              <span class="stage__meta num">{{ stage.records }} 条记录 · 权重 {{ Math.round(stage.weight * 100) }}%</span>
               <span class="stage__score num">{{ stage.score }}</span>
             </div>
             <div class="stage__track">
@@ -247,7 +432,7 @@ const endpoints = [
           </li>
         </ul>
 
-        <!-- 教师裁量：与 AI 分数分开展示，谁扣的分、为什么扣都写清楚 -->
+        <!-- 教师裁量：与系统分分开展示，谁扣的分、为什么扣都写清楚 -->
         <div v-if="deductions.length" class="deduct-block">
           <header class="deduct-block__head">
             <h3>教师现场扣分</h3>
@@ -264,7 +449,11 @@ const endpoints = [
         </div>
 
         <footer class="detail-foot">
+          <p v-if="active.confirmed">已归档于 {{ active.archivedAt }}，分数已锁定，不再随权重调整变化。</p>
           <p>综合分 = Σ（环节得分 × 权重）− 教师现场扣分，保留整数；低于 60 分需教师复核后归档。</p>
+          <p>
+            导出成绩单为 CSV（Excel 直接打开）；导出报告是 A4 打印页，在打印对话框里选「另存为 PDF」即可发给学生。
+          </p>
         </footer>
       </section>
     </div>
@@ -277,6 +466,14 @@ const endpoints = [
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   gap: $space-4;
   align-items: start;
+}
+
+.class-filter {
+  width: 168px;
+}
+
+.list-card {
+  min-width: 0;
 }
 
 .stu-list {
@@ -455,6 +652,10 @@ const endpoints = [
     font-size: 11px;
     line-height: 1.7;
     color: $color-text-placeholder;
+
+    & + p {
+      margin-top: 3px;
+    }
   }
 }
 

@@ -8,7 +8,7 @@ import type { Course, CourseForm, RecipeAnalysis, RecipeDoc } from '@/types'
  * 课程与菜谱接口
  * ----------------------------------------------------------------------------
  * 教师上传 PDF → 后端解析为结构化菜谱（RecipeDoc）→ 学生端阅读
- * → 学生点「让 AI 读一遍」拿到难点与易错点（RecipeAnalysis）。
+ * → 学生点「解析这份菜谱」拿到难点与易错点（RecipeAnalysis）。
  * Mock 模式下用一份完整的「青椒土豆丝」文档兜底，交互链路与真实一致。
  */
 

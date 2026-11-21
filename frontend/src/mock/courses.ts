@@ -4,7 +4,7 @@ import type { Course, RecipeAnalysis, RecipeDoc } from '@/types'
  * 课程与菜谱的演示数据
  * ----------------------------------------------------------------------------
  * 真实环境下一份课程 = 教师上传的 PDF + 后端解析出的结构化菜谱。
- * Mock 里给一份完整的「青椒土豆丝」文档，让学生端的「让 AI 读一遍」有东西可读。
+ * Mock 里给一份完整的「青椒土豆丝」文档，让学生端的「解析这份菜谱」有东西可读。
  */
 
 export const mockRecipeDoc: RecipeDoc = {

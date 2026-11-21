@@ -55,12 +55,54 @@ const columns: RoleColumn[] = [
     boundary: '不参与具体评分，也没有课程内的操作权。',
   },
 ]
+
+/**
+ * 权限矩阵：把「谁看到什么」从三段散文变成一张能对着念的表。
+ * 采购会与合规审查上最常被追问的不是「功能有多少」，而是
+ * 「学生会不会看到别人的分数」「管理员能不能改分」——
+ * 这两句话用一张表比用段落省解释时间。
+ *
+ * 四档取值一律写成文字，不用 ✓/✕ 图标：图标要配色，一配色就破功。
+ */
+type Access = 'edit' | 'read' | 'own' | 'none'
+
+interface CapabilityRow {
+  label: string
+  student: Access
+  teacher: Access
+  admin: Access
+}
+
+const roleKeys = ['student', 'teacher', 'admin'] as const
+const roleNames: Record<(typeof roleKeys)[number], string> = {
+  student: '学生',
+  teacher: '教师',
+  admin: '管理员',
+}
+const ACCESS_LABEL: Record<Access, string> = {
+  edit: '可操作',
+  read: '可查看',
+  own: '仅本人',
+  none: '—',
+}
+
+const capabilities: CapabilityRow[] = [
+  { label: '人脸签到与着装自检', student: 'edit', teacher: 'read', admin: 'none' },
+  { label: '切配、烹饪过程记录', student: 'edit', teacher: 'read', admin: 'none' },
+  { label: '成品拍照与五维评分', student: 'edit', teacher: 'read', admin: 'none' },
+  { label: '过程录像回放', student: 'own', teacher: 'read', admin: 'none' },
+  { label: '扣分与人工裁量', student: 'none', teacher: 'edit', admin: 'none' },
+  { label: '评分标准与权重', student: 'none', teacher: 'edit', admin: 'none' },
+  { label: '成绩单与报告导出', student: 'own', teacher: 'edit', admin: 'none' },
+  { label: '账号与人脸底库', student: 'none', teacher: 'none', admin: 'edit' },
+  { label: '通知与公告', student: 'read', teacher: 'read', admin: 'edit' },
+]
 </script>
 
 <template>
   <section id="roles" class="roles">
     <div class="roles__inner">
-      <header class="section-head">
+      <header v-reveal class="section-head">
         <h2>三个角色，三套看到的界面</h2>
         <p>
           同一套系统，学生只看自己的数据，教师能切换在评学生并直接扣分，管理员管人不评分。权限写在配置里，不是在每个页面里手写判断。
@@ -68,7 +110,12 @@ const columns: RoleColumn[] = [
       </header>
 
       <ul class="role-grid">
-        <li v-for="role in columns" :key="role.key" class="role-col">
+        <li
+          v-for="(role, i) in columns"
+          :key="role.key"
+          v-reveal="{ delay: i * 60 }"
+          class="role-col"
+        >
           <h3 class="role-col__name">{{ role.name }}</h3>
           <p class="role-col__scope">{{ role.scope }}</p>
 
@@ -84,7 +131,36 @@ const columns: RoleColumn[] = [
         </li>
       </ul>
 
-      <footer class="roles__foot">
+      <div v-reveal="{ delay: 180 }" class="matrix">
+        <div class="matrix__head">
+          <h3>功能边界</h3>
+          <p>同一项功能，三个人能做的事不一样。「—」不是没做，是不对这个角色开放。</p>
+        </div>
+
+        <table class="matrix__table">
+          <thead>
+            <tr>
+              <th scope="col">功能</th>
+              <th v-for="key in roleKeys" :key="key" scope="col">{{ roleNames[key] }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in capabilities" :key="row.label">
+              <th scope="row">{{ row.label }}</th>
+              <td
+                v-for="key in roleKeys"
+                :key="key"
+                :class="`is-${row[key]}`"
+                :data-role="roleNames[key]"
+              >
+                {{ ACCESS_LABEL[row[key]] }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <footer v-reveal="{ delay: 240 }" class="roles__foot">
         <span>登录后菜单按角色生成，越权地址会被拦回工作台。</span>
         <RouterLink to="/login" class="link-btn">登录后按角色查看 →</RouterLink>
       </footer>
@@ -103,7 +179,7 @@ const columns: RoleColumn[] = [
     width: 100%;
     max-width: calc(#{$site-max-width} + #{$site-gutter} * 2);
     margin: 0 auto;
-    padding: 96px $site-gutter;
+    padding: 88px $site-gutter;
   }
 
   &__foot {
@@ -235,6 +311,87 @@ const columns: RoleColumn[] = [
   }
 }
 
+// ---------- 权限矩阵 ----------
+.matrix {
+  padding-top: 26px;
+  margin-top: 36px;
+  border-top: 1px solid $color-border-light;
+
+  &__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    align-items: baseline;
+
+    h3 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+      color: $site-ink;
+      letter-spacing: -0.01em;
+    }
+
+    p {
+      margin: 0;
+      font-size: 13px;
+      color: $site-ink-muted;
+    }
+  }
+
+  &__table {
+    width: 100%;
+    margin-top: 16px;
+    font-size: 13.5px;
+    text-align: left;
+    border-collapse: collapse;
+
+    thead th {
+      padding: 0 0 10px;
+      font-size: 12px;
+      font-weight: 500;
+      color: $site-ink-muted;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid $color-border;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid $color-border-light;
+    }
+
+    tbody th {
+      padding: 9px 0;
+      font-weight: 400;
+      color: $site-ink-soft;
+    }
+
+    // 四列按 52% / 16% ×3 分：第一列读功能名，后三列各占等宽，
+    // 视线沿着表头往下扫就能比出差别，不会挤在右边缘
+    thead th:first-child {
+      width: 52%;
+    }
+
+    td,
+    thead th:not(:first-child) {
+      width: 16%;
+    }
+
+    td {
+      padding: 9px 0;
+      color: $site-ink-muted;
+    }
+
+    // 「可操作」加重，「不开放」压到最淡——一眼能分出三层
+    .is-edit {
+      font-weight: 500;
+      color: $site-ink;
+    }
+
+    .is-none {
+      color: $color-text-placeholder;
+    }
+  }
+}
+
 @media (max-width: $breakpoint-lg) {
   .roles {
     align-items: flex-start;
@@ -260,6 +417,55 @@ const columns: RoleColumn[] = [
 
     &__scope {
       min-height: 0;
+    }
+  }
+}
+
+// 手机上表格横向放不下：整表拆成「一行一项功能，下面三行三档权限」。
+// 不用横向滚动条——滚到一半看不到行名，矩阵就失去意义。
+@media (max-width: $breakpoint-md) {
+  .matrix {
+    margin-top: 32px;
+
+    &__head {
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    &__table {
+      margin-top: 12px;
+
+      thead {
+        display: none;
+      }
+
+      tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 3px;
+        padding: 12px 0;
+      }
+
+      tbody th {
+        padding: 0 0 3px;
+        font-size: 14px;
+        color: $site-ink;
+        border: 0;
+      }
+
+      td {
+        display: flex;
+        gap: 10px;
+        width: auto;
+        padding: 0;
+        font-size: 12.5px;
+
+        &::before {
+          min-width: 40px;
+          color: $site-ink-muted;
+          content: attr(data-role);
+        }
+      }
     }
   }
 }

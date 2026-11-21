@@ -11,6 +11,8 @@ import type { StatCardData } from '@/types'
  *  · 图标退为右上角 14px 中性灰线性图标，只起「这是哪一类指标」的提示作用
  *  · 数值是本卡唯一的主角：26px / 600 / 等宽数字，进入时从 0 滚到位
  *  · 环比只用深灰文字 + 一个 5px 的三角，语义色仅在此处出现
+ *  · 没有同期数据（delta 为 undefined）就整行不渲染——签到次数、待办这类
+ *    指标本来就没有「较上周」的意义，硬凑一个「持平」比空着更假
  */
 const props = defineProps<{ data: StatCardData; index?: number }>()
 
@@ -42,7 +44,7 @@ const trend = computed(() => {
       <small v-if="data.unit">{{ data.unit }}</small>
     </p>
 
-    <footer class="stat__foot">
+    <footer v-if="data.delta !== undefined" class="stat__foot">
       <span class="stat__trend" :class="trend.className">
         <el-icon v-if="trend.icon" class="stat__caret"><component :is="trend.icon" /></el-icon>
         <span class="num">{{ trend.text }}</span>

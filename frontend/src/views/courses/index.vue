@@ -182,7 +182,7 @@ function sizeText(bytes: number): string {
       :subtitle="
         canUpload
           ? '上传本节课的菜谱，发布后推送给班级学生'
-          : '本节课的菜谱与 AI 难点解析'
+          : '本节课的菜谱与难点解析'
       "
     >
       <template #actions>

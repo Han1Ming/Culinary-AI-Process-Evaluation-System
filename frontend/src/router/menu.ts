@@ -49,7 +49,7 @@ export const menuGroups: MenuGroup[] = [
       { path: '/modules/ingredient', title: '食材预处理', icon: 'KnifeFork' },
       { path: '/modules/cooking', title: '烹饪过程', icon: 'Timer' },
       { path: '/modules/dish', title: '菜肴成品分析', icon: 'Dish' },
-      { path: '/modules/summary', title: 'AI 综合评价', icon: 'Document' },
+      { path: '/modules/summary', title: '综合评价', icon: 'Document' },
     ],
   },
   {

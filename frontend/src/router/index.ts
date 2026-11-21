@@ -30,6 +30,26 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/site/index.vue'),
         meta: { title: '烹饪实训 AI 过程评价系统', public: true },
       },
+      // 官网唯一的转化出口：留资表单（不复用学生注册页）
+      {
+        path: 'demo',
+        name: 'Demo',
+        component: () => import('@/views/site/demo.vue'),
+        meta: { title: '预约演示', public: true },
+      },
+      // 合规文档：B2B 采购的标书附件必备项
+      {
+        path: 'privacy',
+        name: 'Privacy',
+        component: () => import('@/views/site/legal.vue'),
+        meta: { title: '隐私政策', public: true },
+      },
+      {
+        path: 'terms',
+        name: 'Terms',
+        component: () => import('@/views/site/legal.vue'),
+        meta: { title: '服务条款', public: true },
+      },
     ],
   },
   // ---------- 注册与登录（公开）----------
@@ -121,7 +141,7 @@ const routes: RouteRecordRaw[] = [
         path: 'modules/summary',
         name: 'ModuleSummary',
         component: () => import('@/views/modules/summary/index.vue'),
-        meta: { title: 'AI 综合评价', parentTitle: '评价模块', icon: 'Document' },
+        meta: { title: '综合评价', parentTitle: '评价模块', icon: 'Document' },
       },
       {
         path: 'chat',
@@ -144,6 +164,14 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
+  // ---------- 单人报告（独立打印页，不套后台外壳）----------
+  // 不在 DefaultLayout 里：侧栏、浮空球、页头都会印上去，A4 一页装不下。
+  {
+    path: '/modules/summary/report/:studentId',
+    name: 'SummaryReport',
+    component: () => import('@/views/modules/summary/report.vue'),
+    meta: { title: '实训评价报告' },
+  },
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
@@ -155,7 +183,15 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
-  scrollBehavior: () => ({ top: 0 }),
+  // 带 hash 的跳转（例如从 /demo 点「查看定价」）必须落到对应区块；
+  // 之前统一返回 top:0，锚点全被吞掉，点了停在首屏。
+  // 96 = 顶栏 72 + 24 余量，与 SiteLayout 的 NAV_LINE 同源。
+  scrollBehavior: (to) => {
+    if (to.hash) {
+      return { el: to.hash, top: 96, behavior: 'smooth' }
+    }
+    return { top: 0 }
+  },
 })
 
 setupRouterGuard(router)

@@ -85,6 +85,24 @@
   animation-delay: calc(var(--i, 0) * var(--stagger-step, 34ms));
 }
 
+// ---------- 滚动进场（配合 v-reveal）----------
+// 与 .animate-in 的区别：那个是「页面打开就播」，这个是「滚到眼前才播」。
+// 位移取 14px：整块内容从视口边缘进来，8px 在整屏尺度上看不出来，
+// 20px 以上就开始像模板站了。时长 520ms 慢于普通状态切换，读起来是「落位」。
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition:
+    opacity 520ms $ease-emphasized,
+    transform 520ms $ease-emphasized;
+  transition-delay: var(--reveal-delay, 0ms);
+
+  &.is-revealed {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 // ---------- 骨架屏 ----------
 // 结构：<span class="sk" style="width: 60%; height: 12px" />
 .sk {
@@ -175,4 +193,15 @@
 .row-enter {
   animation: app-fade-in $duration-base $ease-standard both;
   animation-delay: calc(var(--i, 0) * 22ms);
+}
+
+// ---------- 减少动态效果 ----------
+// 脚本里已经不做观察（直接加 is-revealed），这里再兜一层：
+// 万一样式先于脚本生效，内容也不会停在 opacity: 0 上。
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }

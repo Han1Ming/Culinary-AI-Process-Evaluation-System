@@ -2,7 +2,7 @@
 /**
  * 课程详情 · 读菜谱
  * ----------------------------------------------------------------------------
- * 学生端的主线：收到菜谱 → 自己先看一遍 → 让 AI 读一遍 → 拿着难点与易错点进操作间。
+ * 学生端的主线：收到菜谱 → 自己先看一遍 → 解析这份菜谱 → 拿着难点与易错点进操作间。
  *
  * 为什么难点要「标注到步骤上」而不是给一段总结：
  * 学生站在操作台前是按步骤走的，把提示挂在步骤旁边，他走到第 3 步才会抬头看第 3 步；
@@ -50,7 +50,7 @@ onMounted(async () => {
   }
 })
 
-/* ---------------- AI 解读 ---------------- */
+/* ---------------- 菜谱解读 ---------------- */
 
 const difficulties = computed(
   () => analysis.value?.insights.filter((i) => i.kind === 'difficulty') ?? [],
@@ -69,7 +69,7 @@ async function runAnalysis(): Promise<void> {
   analyzing.value = true
   try {
     analysis.value = await analyzeRecipe(courseId.value)
-    ElMessage.success('AI 已读完这份菜谱，难点已标注到对应步骤')
+    ElMessage.success('已解析完这份菜谱，难点已标注到对应步骤')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '解析失败，请稍后重试')
   } finally {
@@ -189,10 +189,10 @@ function kindLabel(kind: RecipeInsight['kind']): string {
           </template>
         </article>
 
-        <!-- AI 解析 -->
+        <!-- 菜谱解析 -->
         <aside class="insight-panel">
           <header class="insight-panel__head">
-            <h2>AI 菜谱解读</h2>
+            <h2>菜谱解读</h2>
             <p v-if="!analysis">把难点与易错点标注到对应步骤</p>
             <p v-else>生成于 {{ analysis.at }} · 共 {{ analysis.insights.length }} 条</p>
           </header>
@@ -205,7 +205,7 @@ function kindLabel(kind: RecipeInsight['kind']): string {
                 : '教师视角预览：点下方按钮可以看到学生将收到的完整解析。' }}
             </p>
             <el-button type="primary" class="insight-idle__btn" @click="runAnalysis">
-              让 AI 读一遍
+              解析这份菜谱
             </el-button>
             <span class="insight-idle__tip">约 3 秒，按操作顺序逐条标注</span>
           </div>

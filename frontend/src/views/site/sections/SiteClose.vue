@@ -14,10 +14,10 @@ const router = useRouter()
     <div class="close__inner">
       <h2>从下一节实训课开始记录</h2>
       <p>
-        留下联系方式与实训室规模，我们按你的课程表配置一套演示环境，用一节课的真实视频跑一遍。
+        留下工位数与本学期要评的菜，我们按你的课程表配一套演示环境，用一节课的真实视频跑一遍，再给一份能直接用于立项的配置与报价。
       </p>
       <div class="close__actions">
-        <button type="button" class="btn btn--primary" @click="router.push('/register')">
+        <button type="button" class="btn btn--primary" @click="router.push('/demo')">
           预约演示
         </button>
         <button type="button" class="btn btn--ghost" @click="router.push('/login')">

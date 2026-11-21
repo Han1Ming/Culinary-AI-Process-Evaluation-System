@@ -21,6 +21,7 @@
 | `frontend/` | 全部前端源码（Vue 3 + TS + Element Plus），可独立运行 | 主要工作区 |
 | `backend/` | 后端占位目录，当前只有一份 `requirements.txt` 建议依赖清单（FastAPI + MySQL + 视觉/大模型库）。FastAPI 代码由后端同学在这个目录下建，前端不依赖其源码 | 后端同学 |
 | `docs/项目完整指南.md` | 14 章完整指南：跑起来 / 改代码 / 接后端 / 建表 / 写论文 / 答辩 | 随代码一起更新 |
+| `docs/后端开发任务书.md` | **交给后端同学的施工图**：启动、目录结构、统一约定、建表 DDL、接口清单、导出方案、SSE 要求、验收清单、排期 | 接口变了先改这里 |
 | `docs/reference/` | 需求与方案原始材料（任务书、开发方案、项目介绍）+ 一份索引说明 | 只读存档 |
 | `docs/assets/` | 真实运行截图，论文与答辩直接取用，不进前端包体 | 只增不改 |
 | `design-system/` | `ui-ux-pro-max` 生成的设计系统（MASTER.md + tokens.css/json） | 参考，不直接引 |
@@ -144,7 +145,12 @@ pnpm preview        # 本地预览构建产物（http://localhost:4173）
 3. 每个 section 一屏或两屏，标题顶对齐，不垂直居中；
 4. 标题含名词、按钮是「动词 + 对象」、不用「了解更多」；
 5. 不编造客户评价、合作院校、使用人数——没有事实就不写；
-6. 不用紫色系，不用渐变按钮，不用彩色图标底板。
+6. 不用紫色系，不用渐变按钮，不用彩色图标底板；
+7. 商业数字（价格、工时、验收指标）必须能追溯：公式写在页面上，阈值与测量条件成对出现。
+
+> 改报价、工位单价、测算默认值、验收指标、合规条款，**只动 `views/site/data.ts`**，
+> 三个分区组件与 `/demo` 表单都从那里取数，不要在两处写同一个数字。
+> 其中「净省金额」刻意不做成乐观结论：算出来是负数就照实显示，并给出「先上单模块试点」的建议。
 
 ### 如何更新 Skill
 
@@ -199,6 +205,7 @@ python .codex/skills/ui-ux-pro-max/scripts/search.py \
 3. **禁止装饰性色彩条**：卡片顶部 3px 彩条、彩色图标底板、胶囊标签堆叠，一律不做。
 4. **三档阴影**，卡片默认 1px 边框 + 几乎不可见的投影，悬浮才抬起一档。
 5. **动效统一取值**：进场用 `$ease-emphasized`（快起慢收），状态切换用 `$ease-standard`（对称）；位移不超过 8px。
+6. **滚动动效只加在官网上，且只播一次**：`v-reveal` 位移 14px / 520ms，进入视口即解绑，往回滚不重播；视差只给实体图（首屏照片、系统截图，行程 ≤60px），**文字一律不做视差**；系统开了「减少动态效果」时两者都直出。后台上页面不加这类动效——表单和表格里内容会动是干扰。
 
 ### 4.2 令牌取值
 
@@ -225,6 +232,8 @@ python .codex/skills/ui-ux-pro-max/scripts/search.py \
 | 能力 | 用法 | 说明 |
 | --- | --- | --- |
 | 列表顺序进场 | 容器加 `v-stagger`，子元素加 `class="animate-in"` | 指令写入 `--i` 序号，间隔默认 34ms，形成阅读顺序 |
+| 滚动进场 | `v-reveal` / `v-reveal="{ delay: i * 60 }"` | IntersectionObserver 共用一个实例，进入视口加 `is-revealed` 后立刻解绑；`prefers-reduced-motion` 下直接显示 |
+| 视差 | `v-parallax="36"`，样式里用 `transform: translate3d(0, var(--plx, 0px), 0)` | 指令只写 CSS 变量，不碰元素自身的 hover/进场 transform；窄屏（<1024）与减少动效时不启动 |
 | 骨架屏 | `<AppSkeleton variant="stats \| table \| list" />` | 与真实内容等高，数据到达零跳动 |
 | 数字滚动 | `useCountUp(ref)` | rAF + easeOutExpo，尊重 `prefers-reduced-motion` |
 | 进度条 | `.meter > .meter__fill`（`--value` 变量） | 自绘，避免 el-progress 的彩色默认值 |
@@ -254,21 +263,25 @@ frontend/
     ├── composables/          # useSSE（流式请求）useCamera（摄像头）useCountUp（数字滚动）
     │                         #   useRole（角色与能力判断，读 config/permissions.ts，唯一的权限入口）
     ├── config/               # permissions.ts：角色 × 能力 / 角色定位文案 / 七模块权限矩阵（唯一事实来源）
-    ├── directives/           # v-stagger：列表顺序进场（写入 --i 序号）
+    ├── directives/           # v-stagger 列表顺序进场 / v-reveal 滚动进场 / v-parallax 视差
     ├── layouts/              # SiteLayout（官网）DefaultLayout（后台主框架）AuthLayout（登录/注册分栏外壳）
     ├── mock/                 # Mock 数据中枢（VITE_USE_MOCK=true 时生效）
     │                         #   students.ts（学生花名册，被选人器、复核、综合评价三处共用一份）
     │                         #   teacher.ts（智能 AI 老师的 Mock 回答，带附件分支）
+    │                         #   summary.ts（综合评价名单与五环节得分，从 students.ts 推导）
     │                         #   courses.ts / notices.ts 单独成文件
     ├── router/               # index.ts 路由表 / guard.ts 守卫（按 meta.roles 拦越权）/ menu.ts 侧栏菜单（按 roles 过滤）
     ├── stores/               # Pinia：auth app chat face review（+ index.ts 实例）
     │                         #   review.ts 里的 activeStudentId 是全模块共享的——一节课跟着人走，不跟着页面走
-    ├── types/                # 全局类型：api user chat face dashboard course notice table
+    ├── types/                # 全局类型：api user chat face dashboard course notice table summary
     ├── utils/                # request(axios) sse(fetch 流) faceCapture markdown format token env
+    │                         #   export.ts（导出成绩单 CSV + 打印报告，零依赖）
     │                         #   assistant.ts（浮空助手知识库：按学生/教师分库）
     ├── views/                # 页面级组件，按功能域分目录
-    │   ├── site/             # 官网首页：index.vue + data.ts（文案与接口清单）+ sections/ 九个区块
-    │   │                     #   Hero / Modules / Roles（角色分工）/ Flow / Product / Api / Scenes / Faq / Cta
+    │   ├── site/             # 官网：index.vue + data.ts（文案、定价、测算参数、合规文本）+ sections/ 十二个区块
+    │   │                     #   Hero / Modules / Roles / Flow / Product / Roi（成本测算）/ Pricing（定价）
+    │   │                     #   / Delivery（实施验收）/ Integration / Scenes / Faq / Close
+    │   │                     #   demo.vue（预约演示留资）· legal.vue（隐私政策 + 服务条款）
     │   ├── register/         # 申请开通：三步表单 + 人脸照片采集
     │   ├── dashboard/        # 工作台：一个路由三套内容（学生 / 教师 / 管理员）
     │   ├── ai-eval/          # 评价总览（角色 × 七模块权限矩阵）
@@ -280,7 +293,7 @@ frontend/
     │   │   ├── ingredient/   #   食材预处理评价
     │   │   ├── cooking/      #   烹饪过程评价
     │   │   ├── dish/         #   菜肴成品分析
-    │   │   └── summary/      #   AI 综合评价（学生版只显示本人）
+    │   │   └── summary/      #   综合评价：index.vue（名单 + 归档 + 导出）+ report.vue（A4 报告，可另存 PDF）
     │   ├── login/
     │   ├── system/
     │   │   ├── user/         # 用户管理 + 学生档案抽屉（人脸照片核验 / 补录）
@@ -437,8 +450,9 @@ Content-Type: application/json
 | 烹饪过程 | `GET /api/modules/cooking/segments?session_id` | 6 步时序分段 + 每步时长判定 |
 | 成品评分 | `POST /api/modules/dish/analyze` | 返回 5 维分数 + 总分 + 评语 |
 | 成品评分 | `GET /api/modules/dish/rubric` | 评分细则（维度权重可配置） |
-| 综合评价 | `GET /api/modules/summary/report?student_id` | 五环节明细 + 加权总分 |
-| 综合评价 | `GET /api/modules/summary/class?class_id` | 班级名单 + 排序 |
+| 综合评价 | `GET /api/v1/summary/roster?taskId&classId` | 任务信息 + 名单 + 五环节得分（教师 / 管理员） |
+| 综合评价 | `GET /api/v1/summary/{studentId}/report` | 单人报告（打印页取这份） |
+| 综合评价 | `POST /api/v1/summary/{studentId}/archive` | 归档，返回 `archivedAt` / `snapshotId` |
 | 智能 AI 老师 | `POST /api/v1/chat`（SSE，带 `file_ids`） | 帧格式见第 2 节 |
 | 智能 AI 老师 | `POST /api/v1/files` | 成品图 / 菜谱 PDF 上传，返回 `file_id` |
 | 各模块通用 | `GET /api/v1/students?class_id` | 教师端左上角选人器的名单来源（`mock/students.ts` 的线上版） |
@@ -456,10 +470,12 @@ Content-Type: application/json
 | 工作台（教师/管理员） | `GET /v1/dashboard/overview` | Mock 中 |
 | 工作台（学生） | `GET /v1/dashboard/me` | Mock 中，见 6.1 |
 | 课程管理 | `GET/POST /v1/courses`、`GET /v1/courses/{id}` | Mock 中，见 6.3 |
-| 菜谱 AI 解读 | `POST /v1/courses/{id}/analysis` | Mock 中，返回难点/易错点 + 步骤标注，见 6.3 |
+| 菜谱解析 | `GET /v1/courses/{id}/recipe`、`POST /v1/courses/{id}/analyze` | Mock 中，返回难点/易错点 + 步骤标注，见 6.3 |
 | 通知发布 | `GET/POST /v1/notices`、`PUT/DELETE /v1/notices/{id}` | Mock 中，见 6.4 |
+| 综合评价 | `GET /v1/summary/roster`、`GET /v1/summary/{id}/report`、`POST /v1/summary/{id}/archive` | **本次已接前端**；字段 camelCase，结构与 `types/summary.ts` 一致，见 `docs/后端开发任务书.md` 6.6 |
 | 问答会话 | `GET /v1/chat/sessions`、`DELETE /v1/chat/sessions/{id}` | Mock 中，页面已预留抽屉 |
 | 附件上传 | `POST /api/v1/files` | **待对接**；入参 `multipart/form-data`，返回 `file_id` |
+| 预约演示留资 | `POST /v1/demo-requests` | Mock 中（按手机号 24 小时内去重，重复提交返回错误）。入参 `{ org, name, role, phone, scale, plan, want, note? }`，返回 `{ requestNo }`。官网 `/demo` 唯一出口，见 `api/demo.ts` |
 | 学生名单 | `GET /api/v1/students?class_id` | **待对接**；教师端选人器用，Mock 走 `src/mock/students.ts` |
 | 智能 AI 老师 | `POST /api/v1/chat`（SSE） | **待对接** |
 | 七大模块 | 见第 5 节表格 | **待对接**（每页右侧面板已列全入参出参） |
@@ -584,7 +600,9 @@ server {
 
 | 页面 | 路由 | 亮点 |
 | --- | --- | --- |
-| 官网首页 | `/` | 独立 `SiteLayout`：72px 定宽导航（滚动时高亮当前分区，不做阴影/收缩）+ **9 个整屏分区**（首屏 / 七大模块 / 角色分工 / 课程流程 / 产品实拍 / 接口对接 / 应用场景 / 常见问题 / 结尾 CTA）。首屏左侧一句话定位 + 两个按钮 + 三个硬数据（7 模块 / 6 步骤 / 4 路视频），右侧是**七张实训现场实拍的自动轮播**（每 5s 交叉淡入，按一节课的时间顺序排：实训室全景 → 系围裙 → 教师看操作 → 切丝 → 翻炒 → 摆盘 → 端盘等评价），下方一条细线段表示第几张。鼠标悬停/聚焦即暂停，系统开了「减少动态效果」则不自动播 |
+| 官网首页 | `/` | 独立 `SiteLayout`：72px 定宽导航（滚动时高亮当前分区，不做阴影/收缩）+ **12 个分区**（首屏 / 七大模块 / 角色分工 + 权限矩阵 / 课程流程 / 产品实拍 / **成本测算** / **定价** / **实施与验收** / 接口对接 / 应用场景 / 常见问题 / 结尾 CTA）。导航只有六项（模块 / 流程 / 测算 / 定价 / 实施 / 问题），**顺序必须与页面 DOM 自上而下一致**——高亮按位置计算，两套顺序不一致就会亮错节（曾经把「定价」排在「流程」前面踩过）。角色区分三段散文 + 一张「功能 × 角色」权限矩阵（可操作 / 可查看 / 仅本人 / —，全用文字，不用 ✓✕ 图标）；定价三档各带自己的留资按钮，并带上套餐参数跳到 `/demo`。首屏左侧一句话定位 + 两个按钮 + 三个硬数据（7 模块 / 6 步骤 / 4 周上线），右侧是**七张实训现场实拍的自动轮播**（每 5s 交叉淡入，按一节课的时间顺序排：实训室全景 → 系围裙 → 教师看操作 → 切丝 → 翻炒 → 摆盘 → 端盘等评价），下方一条细线段表示第几张。鼠标悬停/聚焦即暂停，系统开了「减少动态效果」则不自动播。入场统一 `v-reveal`（滚到才播、只播一次），首屏照片与产品截图挂 `v-parallax`（≤60px 行程），卡片悬停 300ms 快起慢收 |
+| 预约演示 | `/demo` | **官网唯一的转化出口**。六个字段（机构 / 称呼 / 职务 / 手机 / 工位规模 / 意向）+ 演示形式三选一 + 备注，原生控件手写校验（失焦即提示），提交后返回受理编号 `DEMO-YYYYMMDD-XXXX`。**不复用 `/register`**：那是学生开户流程，要采集人脸、等管理员审核，采购方走进去就断了 |
+| 隐私政策 / 服务条款 | `/privacy` `/terms` | 两份文档共用一个组件按路由渲染。学校采购与法务的标书附件必备项，含数据归属、校内存储、人脸留存周期、付款节奏、知识产权与终止条款；页脚底部注明「不构成法律意见，以合同为准」 |
 | 注册 | `/register` | 三步式：账号与身份（学生/教师角色卡片）→ 人脸照片（摄像头实拍 + 上传兜底 + 四角取景框，压缩到 480px JPEG）→ 提交审核。照片随注册一起入库，是后续人脸签到的底库 |
 
 ### 2. 三个角色：同一套系统，三条工作流
@@ -645,7 +663,7 @@ server {
 | 食材切配 | `/modules/ingredient` | 切丝频率折线（SVG sparkline），1.5s 采样；教师看该生画面 | `POST /api/modules/ingredient/analyze`、`GET /api/modules/ingredient/frame` |
 | 烹饪过程 | `/modules/cooking` | 4 路视频墙（ch.01 为在评学生，其余三格标「同一工位其他机位」）+ 6 步时序轨道 + 步骤判定表 | `WS /ws/cooking`、`GET /api/modules/cooking/segments` |
 | 成品评分 | `/modules/dish` | 成品图预览 + 扫描线 + 5 维加权评分 + 评语；教师端上传入口上锁（不得替学生交作品），底部注明当前在评学生 | `POST /api/modules/dish/analyze`、`GET /api/modules/dish/rubric` |
-| 综合评价 | `/modules/summary` | 教师：班级名单 + 右侧五环节得分条 + 归档导出；学生：只有自己那一份，页面顶部写明「班级排名与同学成绩不对学生开放」 | `GET /api/modules/summary/report`、`GET /api/modules/summary/class` |
+| 综合评价 | `/modules/summary` | 教师：本节课的班 + 右侧五环节得分条 + 归档；管理员：可切班看全站；学生：只有自己那一份。导出成绩单（CSV，一行一个学生）与单人报告（`/modules/summary/report/:id` A4 打印页，可另存 PDF） | `GET /api/v1/summary/roster`、`GET /api/v1/summary/{id}/report`、`POST /api/v1/summary/{id}/archive` |
 | 智能 AI 老师 | `/chat` | 860px 窄栏流式对话 + 附件 | `POST /api/v1/chat`、`POST /api/v1/files`、`GET /api/v1/chat/sessions` |
 
 统一由 `components/ModuleShell.vue` 承载：标题 + 状态徽标（Mock / 已对接）+ 左侧内容插槽 + 右侧吸顶面板。新增模块只需再写一个 `views/modules/xxx/index.vue` 套壳，把 `endpoints` 数组传进去。
@@ -672,13 +690,13 @@ server {
 | 回答什么 | **系统怎么用**：功能在哪、规则是什么、报错怎么办、数据在哪看 | **菜怎么做**：挂在哪一步、火候怎么控、这盘菜问题出在哪 |
 | 能不能看附件 | 不能 | 能（成品图 / 菜谱 PDF） |
 | 典型问题 | 「成绩怎么归档」「接口在哪看」 | 「这块挂糊是不是太厚了」「照这页菜谱第 4 步要注意什么」 |
-| 共同底线 | 识别类的具体数值（分数、频率、是否合格）一律不给，只给模块入口 | 同左，回答末尾把评分问题引回 `AI 综合评价` |
+| 共同底线 | 识别类的具体数值（分数、频率、是否合格）一律不给，只给模块入口 | 同左，回答末尾把评分问题引回 `综合评价` |
 
 ### 6. 演示动线（约 6 分钟）
 
 **教师线**：官网 `/` 看定位、七大模块与角色分工（导航会随滚动高亮当前分区）→ 登录 `teacher_chen` → 工作台看班级态势 → 课程管理上传 / 打开一节课 → 课程详情点「让 AI 读一遍」看难点标注 → 着装规范页**左上角选一个学生**，画面切到该生工位，做一次判定 → 食材切配页确认选人器里还是同一个人（不用重选）→ 底部教师复核扣分 → 成品分析页确认上传入口上锁 → 综合评价页归档 → 评价总览看角色矩阵 → 助手问「扣分怎么留痕」。
 
-**学生线**：注册 `/register` 走完三步（含人脸拍照）→ 登录 `2023010101` → 工作台只有「我的实训」→ 打开本节课的菜谱看 AI 难点 → 成品分析上传自己的成品图 → 打开**智能 AI 老师**，把刚才那张成品图拖进对话框问「这盘菜的挂汁哪里不对」，再上传菜谱 PDF 问「第 4 步为什么要复炸」→ AI 综合评价只看自己那一份（顶部写明看不到同学成绩）→ 助手问「红烧肉怎么收汁」。
+**学生线**：注册 `/register` 走完三步（含人脸拍照）→ 登录 `2023010101` → 工作台只有「我的实训」→ 打开本节课的菜谱看 AI 难点 → 成品分析上传自己的成品图 → 打开**智能 AI 老师**，把刚才那张成品图拖进对话框问「这盘菜的挂汁哪里不对」，再上传菜谱 PDF 问「第 4 步为什么要复炸」→ 综合评价只看自己那一份（顶部写明看不到同学成绩）→ 助手问「红烧肉怎么收汁」。
 
 **管理员线**：登录 `admin` → 工作台看账号构成与未录入人脸数 → 用户管理点姓名看学生档案里注册时那张照片，或行内「补录照片」→ 通知发布新建一条 → 注意右下角**没有**浮空助手，左侧菜单也**没有**智能 AI 老师。
 
