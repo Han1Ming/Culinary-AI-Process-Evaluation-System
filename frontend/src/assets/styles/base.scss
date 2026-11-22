@@ -155,12 +155,28 @@ canvas {
 }
 
 // ---------- 卡片容器（全站唯一卡片外观）----------
+// 玻璃拟态只出现在「卡片这一层」：内容多、层级深，卡片半透后
+// 底下的极淡光斑透上来，页面才有纵深；纯不透明卡片在这些页面会显得平。
+// 不做全站半透明——表格、表单里的白底必须实心才看得清数字。
 .app-card {
   padding: $card-padding;
-  background: $color-bg-surface;
-  border: 1px solid $color-border-light;
+  background: $glass-bg;
+  border: 1px solid $glass-border;
   border-radius: $radius-lg;
-  box-shadow: $shadow-card;
+  // 内高光模拟玻璃棱边，比加强投影更接近真实材质
+  box-shadow: inset 0 1px 0 $glass-highlight, $glass-shadow;
+  backdrop-filter: saturate(150%) blur($glass-blur);
+  -webkit-backdrop-filter: saturate(150%) blur($glass-blur);
+  transition: box-shadow $duration-fast $ease-standard, border-color $duration-fast $ease-standard;
+}
+
+// 不支持 backdrop-filter 的浏览器（老 Safari / 部分内嵌内核）直接给实心底，
+// 半透明但不模糊的卡片会让文字糊在背景上
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-card {
+    background: $color-bg-surface;
+    border-color: $color-border-light;
+  }
 }
 
 .app-card--flush {

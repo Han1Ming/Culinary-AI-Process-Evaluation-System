@@ -37,7 +37,14 @@ const columns: DataTableColumn<User>[] = [
   { prop: 'phone', label: '联系方式', minWidth: 180 },
   { prop: 'status', label: '状态', width: 88 },
   { prop: 'lastLoginAt', label: '最近登录', width: 140 },
-  { prop: 'actions', label: '操作', width: 148, align: 'right' },
+  {
+    prop: 'actions',
+    label: '操作',
+    // 只有「编辑 / 删除」两个链接按钮，112 够用；
+    // 原来 148 是为「补录照片」留的位，按钮移除后列会空出一块，看起来像对齐错位
+    width: 112,
+    align: 'right',
+  },
 ]
 
 const roleOptions: Array<{ label: string; value: UserRole }> = [
@@ -377,14 +384,6 @@ onMounted(loadData)
           <template #actions="{ row }">
             <div class="cell-actions">
               <el-button link @click="openEdit(row)">编辑</el-button>
-              <!-- 只有学生需要人脸底库；教师的照片走档案抽屉，不占操作列 -->
-              <el-button
-                v-if="row.role === 'student' && !row.faceRegistered"
-                link
-                @click="openFaceCapture(row)"
-              >
-                补录照片
-              </el-button>
               <el-button link class="cell-actions__danger" @click="handleDelete(row)">删除</el-button>
             </div>
           </template>

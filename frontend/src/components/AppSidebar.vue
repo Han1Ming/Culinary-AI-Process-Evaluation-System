@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AppLogo from './AppLogo.vue'
-import { menuGroups, type MenuGroup } from '@/router/menu'
+import { menuGroups, menuTitle, type MenuGroup } from '@/router/menu'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 
@@ -67,16 +67,16 @@ function handleSelect(path: string): void {
               <el-sub-menu v-if="item.children?.length" :index="item.path">
                 <template #title>
                   <el-icon><component :is="item.icon" /></el-icon>
-                  <span>{{ item.title }}</span>
+                  <span>{{ menuTitle(item, authStore.role) }}</span>
                 </template>
                 <el-menu-item v-for="child in item.children" :key="child.path" :index="child.path">
-                  <template #title>{{ child.title }}</template>
+                  <template #title>{{ menuTitle(child, authStore.role) }}</template>
                 </el-menu-item>
               </el-sub-menu>
 
               <el-menu-item v-else :index="item.path">
                 <el-icon><component :is="item.icon" /></el-icon>
-                <template #title>{{ item.title }}</template>
+                <template #title>{{ menuTitle(item, authStore.role) }}</template>
               </el-menu-item>
             </template>
           </el-menu>
@@ -85,6 +85,17 @@ function handleSelect(path: string): void {
     </el-scrollbar>
 
     <div class="app-sidebar__footer">
+      <!-- 个人中心放在这里：它是「关于我」的入口，不属于任何业务分组 -->
+      <button
+        class="side-link"
+        type="button"
+        :class="{ 'is-active': route.path === '/profile', 'is-icon-only': props.collapse }"
+        :aria-label="props.collapse ? '个人中心' : undefined"
+        @click="handleSelect('/profile')"
+      >
+        <el-icon><User /></el-icon>
+        <span v-if="!props.collapse">个人中心</span>
+      </button>
       <button
         class="collapse-btn"
         type="button"
@@ -106,8 +117,11 @@ function handleSelect(path: string): void {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: $color-bg-surface;
-  border-right: 1px solid $color-border-light;
+  // 与顶栏同一档玻璃：侧栏与顶栏在视觉上是一整块「壳」
+  background: $glass-bg-strong;
+  border-right: 1px solid rgba(17, 19, 24, 0.06);
+  backdrop-filter: saturate(160%) blur($glass-blur);
+  -webkit-backdrop-filter: saturate(160%) blur($glass-blur);
 
   &__brand {
     display: flex;
@@ -203,6 +217,7 @@ function handleSelect(path: string): void {
   }
 }
 
+.side-link,
 .collapse-btn {
   display: flex;
   align-items: center;
@@ -210,6 +225,7 @@ function handleSelect(path: string): void {
   gap: 6px;
   width: 100%;
   height: 32px;
+  font-family: inherit;
   font-size: $font-size-xs;
   color: $color-text-secondary;
   cursor: pointer;
@@ -227,5 +243,25 @@ function handleSelect(path: string): void {
   .el-icon {
     font-size: 14px;
   }
+}
+
+.side-link {
+  justify-content: flex-start;
+  padding: 0 10px;
+  margin-bottom: 2px;
+
+  &.is-active {
+    color: $color-primary;
+    background: $color-primary-soft;
+  }
+
+  &.is-icon-only {
+    justify-content: center;
+    padding: 0;
+  }
+}
+
+.collapse-btn {
+  justify-content: center;
 }
 </style>

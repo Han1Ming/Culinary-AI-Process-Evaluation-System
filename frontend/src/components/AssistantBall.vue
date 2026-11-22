@@ -15,6 +15,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { useRole } from '@/composables/useRole'
+import { assistantName } from '@/config/permissions'
 import {
   getGreeting,
   getQuickQuestions,
@@ -39,6 +40,8 @@ const { role, can } = useRole()
 /** 只有学生与教师有这个入口；管理员整天在管人，不需要一个陪聊的球 */
 const enabled = computed(() => can('assistant.use'))
 const audience = computed<AssistantRole>(() => (role.value === 'teacher' ? 'teacher' : 'student'))
+/** 面板标题与菜单、页头同源，不在这里另起一个「教学助手」的叫法 */
+const panelTitle = computed(() => assistantName(role.value))
 const quickQuestions = computed(() => getQuickQuestions(audience.value))
 const subtitle = computed(() =>
   audience.value === 'teacher' ? '上传 · 扣分 · 归档 · 对接' : '菜谱 · 工艺 · 我的成绩',
@@ -191,7 +194,7 @@ watch(open, (v) => {
       >
         <header class="panel__head">
           <div class="panel__title">
-            <h2>{{ audience === 'teacher' ? '教学助手' : '学习助手' }}</h2>
+            <h2>{{ panelTitle }}</h2>
             <p>{{ subtitle }}</p>
           </div>
           <button type="button" class="panel__close" aria-label="关闭助手" @click="closePanel">

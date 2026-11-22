@@ -17,7 +17,7 @@ export async function fetchCourses(): Promise<Course[]> {
     await mockDelay(260)
     return [...mockCourses].sort((a, b) => b.lessonAt.localeCompare(a.lessonAt))
   }
-  return http.get<Course[]>('/v1/courses')
+  return http.get<Course[]>('/courses')
 }
 
 export async function fetchCourse(id: number): Promise<Course> {
@@ -27,7 +27,7 @@ export async function fetchCourse(id: number): Promise<Course> {
     if (!found) throw new Error('课程不存在或已删除')
     return { ...found }
   }
-  return http.get<Course>(`/v1/courses/${id}`)
+  return http.get<Course>(`/courses/${id}`)
 }
 
 /** 菜谱正文：真实环境由后端解析 PDF 后返回结构化文档 */
@@ -37,7 +37,7 @@ export async function fetchRecipeDoc(courseId: number): Promise<RecipeDoc> {
     void courseId
     return mockRecipeDoc
   }
-  return http.get<RecipeDoc>(`/v1/courses/${courseId}/recipe`)
+  return http.get<RecipeDoc>(`/courses/${courseId}/recipe`)
 }
 
 /**
@@ -50,7 +50,7 @@ export async function analyzeRecipe(courseId: number): Promise<RecipeAnalysis> {
     await mockDelay(1500)
     return mockRecipeAnalysis(courseId)
   }
-  return http.post<RecipeAnalysis>(`/v1/courses/${courseId}/analyze`, null, { timeout: 60000 })
+  return http.post<RecipeAnalysis>(`/courses/${courseId}/analyze`, null, { timeout: 60000 })
 }
 
 export async function createCourse(form: CourseForm): Promise<Course> {
@@ -74,7 +74,7 @@ export async function createCourse(form: CourseForm): Promise<Course> {
     mockCourses.unshift(course)
     return course
   }
-  return http.post<Course>('/v1/courses', form)
+  return http.post<Course>('/courses', form)
 }
 
 /** 发布课程 = 把菜谱推送给班级学生 */
@@ -88,7 +88,7 @@ export async function publishCourse(id: number): Promise<void> {
     }
     return
   }
-  await http.post<null>(`/v1/courses/${id}/publish`)
+  await http.post<null>(`/courses/${id}/publish`)
 }
 
 export async function deleteCourse(id: number): Promise<void> {
@@ -98,5 +98,5 @@ export async function deleteCourse(id: number): Promise<void> {
     if (index >= 0) mockCourses.splice(index, 1)
     return
   }
-  await http.delete<null>(`/v1/courses/${id}`)
+  await http.delete<null>(`/courses/${id}`)
 }

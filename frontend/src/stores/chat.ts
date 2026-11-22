@@ -2,6 +2,7 @@ import { computed, reactive, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import { CHAT_STREAM_URL, deleteChatSession, fetchChatSessions } from '@/api/chat'
+import { uploadFile } from '@/api/file'
 import { useSSE } from '@/composables/useSSE'
 import { USE_MOCK } from '@/utils/env'
 import { mockChatSessions } from '@/mock'
@@ -111,6 +112,28 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
+  /**
+   * 附件上传：逐个换成后端 fileId，返回可按顺序引用的 id 数组。
+   * 已经有 fileId 的（重发/重试）跳过，不重复占服务器空间。
+   * 上传失败直接抛出，由 send 里的 catch 显示成「附件上传失败」，不发半截消息出去。
+   */
+  async function uploadAttachments(items: ChatAttachment[]): Promise<string[]> {
+    const fileIds: string[] = []
+    for (const item of items) {
+      if (item.fileId) {
+        fileIds.push(item.fileId)
+        continue
+      }
+      if (!item.file) continue
+      const uploaded = await uploadFile(item.file)
+      item.fileId = uploaded.fileId
+      // 发出去之后原始 File 就没用了，尽早解除引用
+      item.file = undefined
+      fileIds.push(uploaded.fileId)
+    }
+    return fileIds
+  }
+
   async function send(raw: string, attachments: ChatAttachment[] = []): Promise<void> {
     const text = raw.trim()
     // 只发附件不写字也允许：拍完图直接扔进来是最常见的动作
@@ -155,14 +178,15 @@ export const useChatStore = defineStore('chat', () => {
           reply.content += chunk
         })
       } else {
-        // 真实环境：附件应先用 POST /api/v1/files 换成 file_id
+        // 附件必须先换成 fileId：把本地 id 当 fileId 发过去，后端只能返回 400
+        const fileIds = await uploadAttachments(attachments)
         await start(
           CHAT_STREAM_URL,
           {
             message: text,
-            session_id: session.id,
+            sessionId: session.id,
             stream: true,
-            file_ids: attachments.map((a) => a.id),
+            fileIds,
           },
           { onToken: (token) => (reply.content += token) },
         )

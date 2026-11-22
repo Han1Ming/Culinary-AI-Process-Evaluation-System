@@ -55,5 +55,5 @@ export async function submitDemoRequest(payload: DemoRequestPayload): Promise<De
     sessionStorage.setItem(`demo:${payload.phone}`, '1')
     return { requestNo: buildRequestNo() }
   }
-  return http.post<DemoRequestResult>('/v1/demo-requests', payload)
+  return http.post<DemoRequestResult>('/demo-requests', payload)
 }

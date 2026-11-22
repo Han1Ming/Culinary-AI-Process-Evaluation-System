@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import AppSidebar from '@/components/AppSidebar.vue'
 import AppTopbar from '@/components/AppTopbar.vue'
 import AssistantBall from '@/components/AssistantBall.vue'
+import NoticeReader from '@/components/NoticeReader.vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 
@@ -79,6 +80,9 @@ onMounted(() => {
 
     <!-- 全站浮空助手：固定在右下角，不参与 flex 布局 -->
     <AssistantBall />
+
+    <!-- 公告阅读器：顶栏铃铛、工作台公告卡、公告中心页共用一个弹窗 -->
+    <NoticeReader />
   </el-container>
 </template>
 
@@ -91,7 +95,8 @@ onMounted(() => {
   &__aside {
     height: 100vh;
     overflow: hidden;
-    background: $color-bg-surface;
+    // 背景交给 AppSidebar 的玻璃层，这里保持透明，否则玻璃透出来的还是白
+    background: transparent;
     // 只过渡宽度，且用短时长，避免拖影
     transition: width $duration-base $ease-standard;
     will-change: width;
@@ -112,7 +117,12 @@ onMounted(() => {
     padding: 0;
     overflow-x: hidden;
     overflow-y: auto;
-    background: $color-bg-page;
+    // 极淡光斑固定在视口，滚动时卡片背后的色差会变化，玻璃才有「透」的感觉；
+    // 用固定定位而不是滚动跟随，避免长页面滚到底变成纯色
+    background-color: $color-bg-page;
+    background-image: $bg-ambient;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
     // 独立滚动容器：滚动到边界时不带动父级
     overscroll-behavior: contain;
   }

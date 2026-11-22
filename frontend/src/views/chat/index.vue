@@ -9,6 +9,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import ChatMessage from './components/ChatMessage.vue'
 import SessionDrawer from './components/SessionDrawer.vue'
 import { useRole } from '@/composables/useRole'
+import { assistantName } from '@/config/permissions'
 import { useChatStore } from '@/stores/chat'
 import { USE_MOCK } from '@/utils/env'
 import type { AttachmentKind, ChatAttachment } from '@/types'
@@ -91,7 +92,7 @@ data: [DONE]`,
  * 让他把图或 PDF 直接扔进来，比让他描述「我的汁有点稀」有效得多。
  * 三个入口（拍照、传菜谱、问工艺）对应三种最常见的卡点。
  */
-const { isStudent } = useRole()
+const { isStudent, role } = useRole()
 const chatStore = useChatStore()
 const { messages, sessions, streaming, activeSessionId, activeSession } = storeToRefs(chatStore)
 
@@ -107,7 +108,8 @@ const pending = ref<ChatAttachment[]>([])
 const MAX_FILES = 4
 const MAX_SIZE = 20 * 1024 * 1024
 
-const title = computed(() => (isStudent.value ? '智能 AI 老师' : '课程 AI 助教'))
+// 名字按角色取（学生「智能 AI 老师」/ 教师「智能 AI 助手」），与侧栏菜单同源
+const title = computed(() => assistantName(role.value))
 const subtitle = computed(() =>
   isStudent.value
     ? '发一张成品图或本节课的菜谱，问怎么把这道菜做得更好'
@@ -190,8 +192,10 @@ function addFiles(files: FileList | File[]): void {
       size: file.size,
       kind,
       mime: file.type,
-      // 真实环境这里先压缩再上传；面试/演示阶段只用 objectURL 做缩略图
+      // 缩略图先本地看，真正上传在发送时做（POST /files 拿 fileId）
       previewUrl: kind === 'image' ? URL.createObjectURL(file) : undefined,
+      // 原始文件挂在附件上，发送后由 store 上传并置空
+      file,
     })
   }
 }
@@ -482,7 +486,7 @@ function handleKeydown(event: KeyboardEvent): void {
       @remove="handleRemove"
     />
 
-    <ApiDrawer v-model="apiVisible" :endpoints="endpoints" title="智能 AI 老师 · 后端接入" />
+    <ApiDrawer v-model="apiVisible" :endpoints="endpoints" :title="`${title} · 后端接入`" />
   </div>
 </template>
 

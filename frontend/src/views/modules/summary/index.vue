@@ -20,13 +20,24 @@ import { ElMessage } from 'element-plus'
 
 import ModuleShell from '@/components/ModuleShell.vue'
 import AppSkeleton from '@/components/AppSkeleton.vue'
-import { archiveSummary, fetchSummaryRoster } from '@/api/summary'
+import ReviewActions from '@/components/ReviewActions.vue'
+import { archiveSummary, fetchSummaryRoster, overrideSourceScore, reviewSummaryStudent } from '@/api/summary'
+import type { ReviewAction } from '@/api/summary'
 import { useRole } from '@/composables/useRole'
 import { useAuthStore } from '@/stores/auth'
 import { useReviewStore } from '@/stores/review'
 import { downloadCsv, safeFilename } from '@/utils/export'
 import type { CsvColumn } from '@/utils/export'
-import type { SummaryRoster, SummaryStudent } from '@/types/summary'
+import { askReason, confirmAction } from '@/utils/confirm'
+import { RULE_VERSION } from '@/config/rules'
+import { formatDateTime } from '@/utils/format'
+import type {
+  ScoreChange,
+  ScoreSource,
+  SummaryRoster,
+  SummaryStage,
+  SummaryStudent,
+} from '@/types/summary'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -128,6 +139,32 @@ function weighted(s: SummaryStudent): number {
   return Math.round(s.stages.reduce((sum, st) => sum + st.score * st.weight, 0))
 }
 
+/** AI 初评总分：与最终分并排展示，差异就是教师复核改动的部分 */
+function aiTotal(s: SummaryStudent): number {
+  return Math.round(s.stages.reduce((sum, st) => sum + (st.aiScore ?? st.score) * st.weight, 0))
+}
+
+/** 环节最终分：优先取教师复核分 */
+function stageScore(stage: SummaryStage): number {
+  return stage.reviewScore ?? stage.score
+}
+
+/** 教师复核改动超过 0 分的环节数，用于页头一句话概括 */
+const reviewedDiff = computed(() => {
+  const s = active.value
+  if (!s) return 0
+  return s.stages.filter((st) => (st.aiScore ?? st.score) !== stageScore(st)).length
+})
+
+/** 分数来源抽屉 */
+const traceVisible = ref(false)
+const traceStage = ref<SummaryStage | null>(null)
+
+function openTrace(stage: SummaryStage): void {
+  traceStage.value = stage
+  traceVisible.value = true
+}
+
 /** 加权分扣掉教师现场分，最低 0 */
 function finalScore(s: SummaryStudent): number {
   return Math.max(0, weighted(s) - reviewStore.sumBy(s.id))
@@ -152,16 +189,167 @@ async function confirmScore(): Promise<void> {
     ElMessage.warning(`${student.name} 的成绩已归档，归档后不再变动`)
     return
   }
+  // 归档前置：必须先「确认」。没确认就归档等于替教师做决定，流程上说不通
+  if ((student.reviewState ?? 'pending') !== 'confirmed') {
+    ElMessage.warning(`请先点「确认」通过 ${student.name} 的成绩，再归档`)
+    return
+  }
+  // 归档是不可逆的：冻结分数、权重版本与原始分项，必须二次确认
+  const ok = await confirmAction({
+    title: '归档实训成绩',
+    message: `${student.name} 的最终成绩为 ${finalScore(student)} 分（${grade(finalScore(student))}）。归档后分数、权重版本与各项原始分将被冻结，后续调整权重不再追溯。`,
+    confirmText: '确认归档',
+    dangerous: true,
+  })
+  if (!ok) return
+
   archiving.value = true
   try {
     const at = await archiveSummary(student.id)
     student.confirmed = true
     student.archivedAt = at
+    student.ruleVersion = RULE_VERSION
+    student.archivedTotal = finalScore(student)
     ElMessage.success(`已归档 ${student.name} 的实训成绩 · ${at}`)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '归档失败，请稍后重试')
   } finally {
     archiving.value = false
+  }
+}
+
+/* ------------------------------ 教师复核 ------------------------------ */
+
+const reviewing = ref(false)
+
+/**
+ * 确认 / 驳回 / 转复核
+ * ----------------------------------------------------------------------------
+ * 三个动作都要落「谁、何时、为什么」，其中驳回与转复核必须写原因——
+ * 学生看到「已驳回」却不知道哪里不对，只能来问老师，等于没做流程。
+ */
+async function doReview(action: ReviewAction): Promise<void> {
+  const student = active.value
+  if (!student) return
+  if (student.confirmed) {
+    ElMessage.warning(`${student.name} 的成绩已归档，复核状态不能再改`)
+    return
+  }
+
+  let note = ''
+  if (action === 'reject') {
+    const reason = await askReason({
+      title: `驳回 ${student.name} 的成绩`,
+      message: '驳回后学生会看到这条原因，需要重新提交或补做。',
+      placeholder: '例如：成品照片反光，无法判断芡汁挂壁，请重拍',
+    })
+    if (!reason) return
+    note = reason
+  }
+  if (action === 'hold') {
+    const reason = await askReason({
+      title: `转复核：${student.name}`,
+      message: '转复核表示当场定不了，留给课后或教研组；不计入「待归档」。',
+      placeholder: '例如：视频时间戳对不上，需调原始录像核对',
+    })
+    if (!reason) return
+    note = reason
+  }
+
+  reviewing.value = true
+  try {
+    const result = await reviewSummaryStudent(student.id, action, note)
+    student.reviewState = result.reviewState
+    student.reviewedAt = result.reviewedAt
+    student.reviewedBy = result.reviewedBy
+    student.reviewNote = note || undefined
+    const labels: Record<ReviewAction, string> = {
+      confirm: '已确认，可以归档',
+      reject: '已驳回，原因已记录',
+      hold: '已转复核，等待教研组',
+    }
+    ElMessage.success(`${student.name} ${labels[action]}`)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '复核操作失败')
+  } finally {
+    reviewing.value = false
+  }
+}
+
+/* ------------------------------ 来源详情与改分 ------------------------------ */
+
+const sourceVisible = ref(false)
+const activeSource = ref<ScoreSource | null>(null)
+const sourceScore = ref(0)
+const sourceReason = ref('')
+const sourceSaving = ref(false)
+
+function openSource(source: ScoreSource): void {
+  activeSource.value = source
+  sourceScore.value = source.score ?? 0
+  sourceReason.value = ''
+  sourceVisible.value = true
+}
+
+/**
+ * 改单条来源的分：改动落在最原始的一层，环节分由来源重新合成。
+ * 这样「成绩修改记录」里记的永远是「某张图从 88 改成 82」，
+ * 而不是「环节分莫名其妙变了 3 分」——后者无法追溯。
+ */
+async function saveSourceScore(): Promise<void> {
+  const student = active.value
+  const stage = traceStage.value
+  const source = activeSource.value
+  if (!student || !stage || !source) return
+
+  if (!Number.isFinite(sourceScore.value) || sourceScore.value < 0 || sourceScore.value > 100) {
+    ElMessage.warning('分数需在 0 - 100 之间')
+    return
+  }
+  if (sourceReason.value.trim().length < 4) {
+    ElMessage.warning('写清改分原因（至少 4 个字），学生申诉时要用')
+    return
+  }
+  if ((source.score ?? 0) === sourceScore.value) {
+    ElMessage.info('分数没有变化')
+    return
+  }
+
+  const before = stageScore(stage)
+  sourceSaving.value = true
+  try {
+    const result = await overrideSourceScore(
+      student.id,
+      stage.key,
+      source.id,
+      sourceScore.value,
+      sourceReason.value.trim(),
+    )
+    source.score = sourceScore.value
+    stage.score = result.stageScore
+    stage.reviewScore = result.stageScore
+    stage.reviewed = true
+
+    const record: ScoreChange = {
+      id: `chg_${Date.now()}`,
+      at: formatDateTime(Date.now(), 'YYYY-MM-DD HH:mm'),
+      by: auth.displayName,
+      target: 'stage',
+      stageLabel: stage.label,
+      from: before,
+      to: result.stageScore,
+      reason: `${source.module}「${source.title}」单条改分：${sourceReason.value.trim()}`,
+    }
+    student.changes = [record, ...(student.changes ?? [])]
+
+    sourceVisible.value = false
+    ElMessage.success(
+      `${stage.label} 由 ${before} 调整为 ${result.stageScore}，已写入成绩修改记录`,
+    )
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '改分失败')
+  } finally {
+    sourceSaving.value = false
   }
 }
 
@@ -248,9 +436,9 @@ const endpoints = [
   {
     name: '名单与得分',
     method: 'GET' as const,
-    path: '/v1/summary/roster',
+    path: '/api/v1/summary/roster',
     note: '按任务返回本节课的班级与学生各环节得分；教师端据此锁定默认班级。',
-    request: `GET /v1/summary/roster?taskId=task_20261121_01&classId=12`,
+    request: `GET /api/v1/summary/roster?taskId=task_20261121_01&classId=12`,
     response: `{
   "code": 0,
   "data": {
@@ -284,9 +472,9 @@ const endpoints = [
   {
     name: '单人报告',
     method: 'GET' as const,
-    path: '/v1/summary/{studentId}/report',
+    path: '/api/v1/summary/{studentId}/report',
     note: '报告页取这份数据渲染；total 为加权分，教师现场扣分由前端从复核记录合成。',
-    request: `GET /v1/summary/1001/report?taskId=task_20261121_01`,
+    request: `GET /api/v1/summary/1001/report?taskId=task_20261121_01`,
     response: `{
   "code": 0,
   "data": {
@@ -302,7 +490,7 @@ const endpoints = [
   {
     name: '归档',
     method: 'POST' as const,
-    path: '/v1/summary/{studentId}/archive',
+    path: '/api/v1/summary/{studentId}/archive',
     note: '锁定分数并生成快照，之后调整权重不追溯；低于 60 分应先复核。',
     request: `{ "taskId": "task_20261121_01" }`,
     response: `{
@@ -414,23 +602,93 @@ const endpoints = [
             <strong class="num">{{ finalScore(active) }}</strong>
             <span>
               {{ grade(finalScore(active)) }}
-              <template v-if="deductedPoints > 0"> · 教师扣 {{ deductedPoints }} 分</template>
+              <template v-if="active.confirmed"> · 已归档</template>
             </span>
           </div>
         </header>
 
+        <!-- 复核状态 + 三个动作：确认 / 驳回 / 转复核（与成品页共用同一个组件） -->
+        <ReviewActions
+          :state="active.reviewState ?? 'pending'"
+          :reviewed-by="active.reviewedBy"
+          :reviewed-at="active.reviewedAt"
+          :note="active.reviewNote"
+          :disabled="active.confirmed"
+          :can-review="can('module.review')"
+          :loading="reviewing"
+          @confirm="doReview('confirm')"
+          @reject="doReview('reject')"
+          @hold="doReview('hold')"
+        />
+
+        <!-- AI 初评 / 教师复核 / 现场扣分 / 最终：三段分开，谁改的都看得见 -->
+        <dl class="score-split">
+          <div>
+            <dt>AI 初评</dt>
+            <dd class="num">{{ aiTotal(active) }}</dd>
+          </div>
+          <div>
+            <dt>教师复核</dt>
+            <dd class="num">{{ weighted(active) }}</dd>
+          </div>
+          <div>
+            <dt>现场扣分</dt>
+            <dd class="num" :class="{ 'is-deduct': deductedPoints > 0 }">
+              {{ deductedPoints > 0 ? `−${deductedPoints}` : '0' }}
+            </dd>
+          </div>
+          <div>
+            <dt>最终成绩</dt>
+            <dd class="num is-strong">{{ finalScore(active) }}</dd>
+          </div>
+        </dl>
+
+        <p v-if="reviewedDiff" class="review-note">
+          教师复核改动了 {{ reviewedDiff }} 个环节的分数，点击环节可查看该分的来源记录。
+        </p>
+        <p v-else class="review-note">各环节分数与 AI 初评一致，点击环节可查看来源记录。</p>
+
         <ul class="stage-list">
-          <li v-for="stage in active.stages" :key="stage.key" class="stage">
+          <li
+            v-for="stage in active.stages"
+            :key="stage.key"
+            class="stage is-clickable"
+            @click="openTrace(stage)"
+          >
             <div class="stage__row">
               <span class="stage__label">{{ stage.label }}</span>
-              <span class="stage__meta num">{{ stage.records }} 条记录 · 权重 {{ Math.round(stage.weight * 100) }}%</span>
-              <span class="stage__score num">{{ stage.score }}</span>
+              <span class="stage__meta num">
+                {{ stage.records }} 条记录 · 权重 {{ Math.round(stage.weight * 100) }}%
+                <template v-if="stage.reviewed"> · 已复核</template>
+              </span>
+              <span class="stage__ai num" v-if="stage.aiScore !== undefined && stage.aiScore !== stageScore(stage)">
+                AI {{ stage.aiScore }}
+              </span>
+              <span class="stage__score num">{{ stageScore(stage) }}</span>
             </div>
             <div class="stage__track">
-              <div class="stage__fill" :style="{ width: `${stage.score}%` }" />
+              <div class="stage__fill" :style="{ width: `${stageScore(stage)}%` }" />
             </div>
           </li>
         </ul>
+
+        <!-- 成绩修改记录：谁在什么时候把多少分改成了多少分 -->
+        <div v-if="active.changes?.length" class="change-block">
+          <header class="change-block__head">
+            <h3>成绩修改记录</h3>
+            <span class="num">{{ active.changes.length }} 次</span>
+          </header>
+          <ul class="change-block__list">
+            <li v-for="change in active.changes" :key="change.id">
+              <span class="change-block__time num">{{ change.at }}</span>
+              <span class="change-block__who">{{ change.by }}</span>
+              <span class="change-block__what">
+                {{ change.stageLabel ?? '总分' }} {{ change.from }} → {{ change.to }}
+              </span>
+              <span class="change-block__reason">{{ change.reason }}</span>
+            </li>
+          </ul>
+        </div>
 
         <!-- 教师裁量：与系统分分开展示，谁扣的分、为什么扣都写清楚 -->
         <div v-if="deductions.length" class="deduct-block">
@@ -449,14 +707,139 @@ const endpoints = [
         </div>
 
         <footer class="detail-foot">
-          <p v-if="active.confirmed">已归档于 {{ active.archivedAt }}，分数已锁定，不再随权重调整变化。</p>
-          <p>综合分 = Σ（环节得分 × 权重）− 教师现场扣分，保留整数；低于 60 分需教师复核后归档。</p>
+          <p v-if="active.confirmed">
+            已归档于 {{ active.archivedAt }}，冻结总分
+            <strong class="num">{{ active.archivedTotal ?? finalScore(active) }}</strong> 分，
+            规则版本 {{ active.ruleVersion ?? RULE_VERSION }}；后续调整权重不再追溯。
+          </p>
+          <p>
+            综合分 = Σ（环节得分 × 权重）− 教师现场扣分，保留整数；当前规则版本
+            {{ RULE_VERSION }}。低于 60 分需教师复核后归档。
+          </p>
           <p>
             导出成绩单为 CSV（Excel 直接打开）；导出报告是 A4 打印页，在打印对话框里选「另存为 PDF」即可发给学生。
           </p>
         </footer>
       </section>
     </div>
+
+    <!-- 分数来源：每个环节的分都能点回到具体记录 / 截图 / 事件 -->
+    <el-drawer v-model="traceVisible" title="分数来源" size="440px">
+      <div v-if="traceStage" class="trace">
+        <header class="trace__head">
+          <div>
+            <h3>{{ traceStage.label }}</h3>
+            <p class="num">
+              权重 {{ Math.round(traceStage.weight * 100) }}% · 共 {{ traceStage.records }} 条记录
+            </p>
+          </div>
+          <div class="trace__score">
+            <span v-if="traceStage.aiScore !== undefined" class="num">AI {{ traceStage.aiScore }}</span>
+            <strong class="num">{{ stageScore(traceStage) }}</strong>
+          </div>
+        </header>
+
+        <ul v-if="traceStage.sources?.length" class="trace__list">
+          <li v-for="source in traceStage.sources" :key="source.id" class="trace-item">
+            <button type="button" class="trace-item__btn" @click="openSource(source)">
+              <el-image
+                v-if="source.snapshot"
+                :src="source.snapshot"
+                fit="cover"
+                class="trace-item__shot"
+              />
+              <div class="trace-item__body">
+                <p class="trace-item__title">
+                  <span class="trace-item__module">{{ source.module }}</span>
+                  {{ source.title }}
+                </p>
+                <p class="trace-item__detail">{{ source.detail }}</p>
+                <span class="trace-item__time num">
+                  {{ source.at }} · {{ source.id }}
+                  <template v-if="source.score !== undefined"> · 本条第 {{ source.score }} 分</template>
+                </span>
+              </div>
+              <el-icon class="trace-item__more"><ArrowRight /></el-icon>
+            </button>
+          </li>
+        </ul>
+        <p v-else class="trace__empty">该环节尚未回传原始记录，只有汇总分。</p>
+
+        <p class="trace__note">
+          追溯口径：环节分由这些原始记录按规则合成。点任意一条看详情；
+          教师可在详情里改这一条的分，改动会写进下方「成绩修改记录」。
+        </p>
+      </div>
+    </el-drawer>
+
+    <!-- 来源详情：单条记录的完整信息 + 教师改分入口 -->
+    <el-dialog v-model="sourceVisible" title="来源记录详情" width="620px" append-to-body>
+      <div v-if="activeSource" class="source">
+        <header class="source__head">
+          <div>
+            <p class="source__module">{{ activeSource.module }}</p>
+            <h3>{{ activeSource.title }}</h3>
+            <span class="source__time num">
+              {{ activeSource.at }} · {{ activeSource.id }}
+              <template v-if="traceStage"> · {{ traceStage.label }}</template>
+            </span>
+          </div>
+          <div class="source__score">
+            <span>本条得分</span>
+            <strong class="num">{{ activeSource.score ?? '—' }}</strong>
+          </div>
+        </header>
+
+        <div v-if="activeSource.snapshot" class="source__shot">
+          <el-image
+            :src="activeSource.snapshot"
+            :preview-src-list="[activeSource.snapshot]"
+            fit="cover"
+            preview-teleported
+          />
+          <span>点击图片放大核对</span>
+        </div>
+
+        <p class="source__detail">{{ activeSource.detail }}</p>
+
+        <dl v-if="activeSource.dimensions?.length" class="source__facts">
+          <div v-for="item in activeSource.dimensions" :key="item.label">
+            <dt>{{ item.label }}</dt>
+            <dd class="num">{{ item.value }}</dd>
+          </div>
+        </dl>
+
+        <dl v-if="activeSource.meta?.length" class="source__facts is-muted">
+          <div v-for="item in activeSource.meta" :key="item.label">
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
+          </div>
+        </dl>
+
+        <!-- 教师改分：改的是这一条，不是环节分 -->
+        <section v-if="can('module.review') && !active.confirmed" class="source__edit">
+          <h4>教师改分</h4>
+          <p class="source__edit-hint">
+            改的是这一条原始记录的分；环节分由本环节所有来源重新合成，AI 原始分保留备查。
+          </p>
+          <div class="source__edit-row">
+            <el-input-number v-model="sourceScore" :min="0" :max="100" controls-position="right" />
+            <el-input
+              v-model="sourceReason"
+              placeholder="改分原因（至少 4 字）"
+              maxlength="60"
+              class="source__reason"
+            />
+            <el-button type="primary" :loading="sourceSaving" @click="saveSourceScore">
+              保存改分
+            </el-button>
+          </div>
+        </section>
+        <p v-else class="source__readonly">
+          成绩已归档或当前账号无复核权限，此处只读。
+        </p>
+      </div>
+    </el-dialog>
   </ModuleShell>
 </template>
 
@@ -656,6 +1039,401 @@ const endpoints = [
     & + p {
       margin-top: 3px;
     }
+  }
+}
+
+.score-split {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: $space-2;
+  padding: $space-3 0;
+  margin: 0 0 $space-3;
+  border-bottom: 1px solid $color-border-light;
+
+  dt {
+    font-size: 11px;
+    color: $color-text-placeholder;
+  }
+
+  dd {
+    margin: 3px 0 0;
+    font-size: $font-size-md;
+    color: $color-text-regular;
+
+    &.is-strong {
+      font-weight: $font-weight-semibold;
+      color: $color-text-primary;
+    }
+
+    &.is-deduct {
+      color: $color-danger;
+    }
+  }
+}
+
+.review-note {
+  margin: 0 0 $space-4;
+  font-size: $font-size-xs;
+  color: $color-text-placeholder;
+}
+
+.stage__ai {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: $color-text-placeholder;
+}
+
+.stage.is-clickable {
+  padding: 6px 8px;
+  margin: 0 -8px;
+  cursor: pointer;
+  border-radius: $radius-sm;
+  transition: background-color $duration-fast $ease-standard;
+
+  &:hover {
+    background: $color-bg-subtle;
+  }
+}
+
+.change-block {
+  padding-top: $space-4;
+  margin-top: $space-5;
+  border-top: 1px solid $color-border-light;
+
+  &__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: $space-2;
+
+    h3 {
+      margin: 0;
+      font-size: $font-size-sm;
+      font-weight: $font-weight-medium;
+      color: $color-text-primary;
+    }
+
+    span {
+      font-size: $font-size-xs;
+      color: $color-text-placeholder;
+    }
+  }
+
+  &__list {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+
+    li {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px $space-2;
+      align-items: baseline;
+      padding: 7px 0;
+      font-size: $font-size-xs;
+      border-top: 1px solid $color-border-light;
+    }
+  }
+
+  &__time {
+    flex-shrink: 0;
+    color: $color-text-placeholder;
+  }
+
+  &__who {
+    flex-shrink: 0;
+    color: $color-text-regular;
+  }
+
+  &__what {
+    flex-shrink: 0;
+    font-weight: $font-weight-medium;
+    color: $color-text-primary;
+  }
+
+  &__reason {
+    flex: 1;
+    min-width: 160px;
+    color: $color-text-placeholder;
+  }
+}
+
+.trace {
+  &__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding-bottom: $space-4;
+    border-bottom: 1px solid $color-border-light;
+
+    h3 {
+      margin: 0;
+      font-size: $font-size-md;
+      font-weight: $font-weight-semibold;
+      color: $color-text-primary;
+    }
+
+    p {
+      margin: 3px 0 0;
+      font-size: $font-size-xs;
+      color: $color-text-placeholder;
+    }
+  }
+
+  &__score {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+
+    span {
+      font-size: 11px;
+      color: $color-text-placeholder;
+    }
+
+    strong {
+      font-size: $font-size-xl;
+      font-weight: $font-weight-semibold;
+      color: $color-text-primary;
+    }
+  }
+
+  &__list {
+    padding: 0;
+    margin: $space-3 0 0;
+    list-style: none;
+  }
+
+  &__empty {
+    padding: $space-6 0;
+    margin: 0;
+    font-size: $font-size-sm;
+    color: $color-text-placeholder;
+    text-align: center;
+  }
+
+  &__note {
+    padding-top: $space-4;
+    margin: $space-4 0 0;
+    font-size: 11px;
+    line-height: 1.7;
+    color: $color-text-placeholder;
+    border-top: 1px solid $color-border-light;
+  }
+}
+
+.trace-item {
+  border-bottom: 1px solid $color-border-light;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  /* 整行可点：进详情弹窗。button 包一层是为了键盘可达与正确的点击区域 */
+  &__btn {
+    display: flex;
+    gap: $space-3;
+    width: 100%;
+    padding: $space-3 4px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: $radius-sm;
+    transition: background-color $duration-fast $ease-standard;
+
+    &:hover {
+      background: $color-bg-subtle;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $color-primary;
+      outline-offset: -2px;
+    }
+  }
+
+  &__shot {
+    flex: 0 0 88px;
+    width: 88px;
+    height: 66px;
+    overflow: hidden;
+    background: $color-bg-subtle;
+    border-radius: $radius-sm;
+  }
+
+  &__body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: $font-size-sm;
+    color: $color-text-primary;
+  }
+
+  &__module {
+    margin-right: 6px;
+    font-size: 10px;
+    color: $color-text-placeholder;
+  }
+
+  &__detail {
+    margin: 3px 0 0;
+    font-size: $font-size-xs;
+    line-height: 1.6;
+    color: $color-text-regular;
+  }
+
+  &__time {
+    display: block;
+    margin-top: 3px;
+    font-size: 10px;
+    color: $color-text-placeholder;
+  }
+
+  &__more {
+    flex: 0 0 auto;
+    align-self: center;
+    font-size: 12px;
+    color: $color-text-placeholder;
+  }
+}
+
+/* ------------------------------ 来源详情弹窗 ------------------------------ */
+
+.source {
+  &__head {
+    display: flex;
+    gap: $space-4;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding-bottom: $space-3;
+    border-bottom: 1px solid $color-border-light;
+
+    h3 {
+      margin: 2px 0 0;
+      font-size: $font-size-base;
+      font-weight: $font-weight-semibold;
+      color: $color-text-primary;
+    }
+  }
+
+  &__module {
+    margin: 0;
+    font-size: 11px;
+    color: $color-text-placeholder;
+  }
+
+  &__time {
+    display: block;
+    margin-top: 3px;
+    font-size: 10.5px;
+    color: $color-text-placeholder;
+  }
+
+  &__score {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex-shrink: 0;
+
+    span {
+      font-size: 10.5px;
+      color: $color-text-placeholder;
+    }
+
+    strong {
+      font-size: 26px;
+      font-weight: $font-weight-semibold;
+      line-height: 1.1;
+      color: $color-text-primary;
+    }
+  }
+
+  &__shot {
+    margin-top: $space-3;
+
+    :deep(.el-image) {
+      width: 100%;
+      max-height: 240px;
+      border-radius: $radius-sm;
+    }
+
+    span {
+      display: block;
+      margin-top: 4px;
+      font-size: 10.5px;
+      color: $color-text-placeholder;
+    }
+  }
+
+  &__detail {
+    margin: $space-3 0 0;
+    font-size: $font-size-sm;
+    line-height: 1.7;
+    color: $color-text-regular;
+  }
+
+  &__facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: $space-3;
+    padding: $space-3;
+    margin: $space-3 0 0;
+    background: $color-bg-subtle;
+    border-radius: $radius-sm;
+
+    dt {
+      font-size: 10.5px;
+      color: $color-text-placeholder;
+    }
+
+    dd {
+      margin: 2px 0 0;
+      font-size: $font-size-sm;
+      color: $color-text-primary;
+    }
+
+    &.is-muted dd {
+      color: $color-text-secondary;
+    }
+  }
+
+  &__edit {
+    padding-top: $space-3;
+    margin-top: $space-3;
+    border-top: 1px solid $color-border-light;
+
+    h4 {
+      margin: 0;
+      font-size: $font-size-sm;
+      font-weight: $font-weight-semibold;
+      color: $color-text-primary;
+    }
+  }
+
+  &__edit-hint {
+    margin: 3px 0 $space-2;
+    font-size: 11px;
+    line-height: 1.6;
+    color: $color-text-placeholder;
+  }
+
+  &__edit-row {
+    display: flex;
+    gap: $space-2;
+    align-items: center;
+  }
+
+  &__reason {
+    flex: 1;
+  }
+
+  &__readonly {
+    margin: $space-3 0 0;
+    font-size: $font-size-xs;
+    color: $color-text-placeholder;
   }
 }
 

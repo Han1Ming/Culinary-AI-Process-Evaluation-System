@@ -14,7 +14,7 @@ export async function login(payload: LoginPayload): Promise<LoginResult> {
     }
     return { token: `mock-token-${user.id}`, user }
   }
-  return http.post<LoginResult>('/v1/auth/login', payload)
+  return http.post<LoginResult>('/auth/login', payload)
 }
 
 /**
@@ -30,7 +30,7 @@ export async function registerAccount(payload: RegisterPayload): Promise<Registe
     }
     return { id: Date.now(), username: payload.username, needApproval: true }
   }
-  return http.post<RegisterResult>('/v1/auth/register', payload)
+  return http.post<RegisterResult>('/auth/register', payload)
 }
 
 /** 获取当前登录用户信息 GET /v1/auth/profile */
@@ -40,7 +40,7 @@ export async function getProfile(): Promise<User> {
     const id = Number(getToken().replace('mock-token-', ''))
     return mockUsers.find((item) => item.id === id) ?? mockUsers[0]
   }
-  return http.get<User>('/v1/auth/profile')
+  return http.get<User>('/auth/profile')
 }
 
 /** 退出登录 POST /v1/auth/logout */
@@ -49,5 +49,5 @@ export async function logout(): Promise<void> {
     await mockDelay(120)
     return
   }
-  await http.post<null>('/v1/auth/logout')
+  await http.post<null>('/auth/logout')
 }

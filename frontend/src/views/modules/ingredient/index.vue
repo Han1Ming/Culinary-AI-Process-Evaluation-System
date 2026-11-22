@@ -10,6 +10,7 @@
  * 不再需要本机摄像头——教师不可能同时站在 40 个工位上。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 
 import ModuleShell from '@/components/ModuleShell.vue'
 import ReviewStage from '@/components/ReviewStage.vue'
@@ -17,12 +18,17 @@ import TeacherReview from '@/components/TeacherReview.vue'
 import { useCamera } from '@/composables/useCamera'
 import { useRole } from '@/composables/useRole'
 import { useReviewStore } from '@/stores/review'
+import { downloadCsv, safeFilename } from '@/utils/export'
+import { formatDateTime } from '@/utils/format'
+import prepShot from '@/assets/images/prep-cutting.jpg'
 
 const { can } = useRole()
 const reviewStore = useReviewStore()
 
 const isReviewing = computed(() => can('module.review'))
 const target = computed(() => reviewStore.activeStudent)
+/** 指标归到谁名下 */
+const ownerName = computed(() => (isReviewing.value ? target.value.name : '本人'))
 
 /** 规格类违规：机器量得出数字，是否扣分由教师按课程标准定 */
 const reviewItems = [
@@ -43,6 +49,16 @@ const cuts = ref(0)
 const elapsed = ref(0)
 let timer: number | undefined
 
+/** 关键帧：每 4 个采样点留一张，点开能对到具体时间 */
+interface Keyframe {
+  id: string
+  /** 相对开始时间的秒数 */
+  at: number
+  label: string
+  image: string
+}
+const keyframes = ref<Keyframe[]>([])
+
 const current = computed(() => samples.value.at(-1) ?? 0)
 const average = computed(() => {
   if (!samples.value.length) return 0
@@ -56,6 +72,94 @@ const uniformity = computed(() => {
   const cv = Math.sqrt(variance) / (avg || 1)
   return Math.max(0, Math.min(100, Math.round((1 - cv) * 100)))
 })
+
+/**
+ * 操作连续性：采样窗口里低于 0.8 次/秒（几乎停手）的比例越低越连续。
+ * 这是可观测指标，不是模型臆测——停手就是停手。
+ */
+const continuity = computed(() => {
+  if (samples.value.length < 4) return 0
+  const idle = samples.value.filter((value) => value < 0.8).length
+  return Math.round((1 - idle / samples.value.length) * 100)
+})
+
+/** 成丝规格：抽帧测量的截面尺寸（真实环境由后端返回，前端只展示） */
+const spec = computed(() => {
+  if (samples.value.length < 3) return null
+  const drift = (100 - uniformity.value) / 100
+  return {
+    thickness: Number((2.6 + drift * 1.6).toFixed(1)),
+    length: Math.round(58 + drift * 22),
+    standard: 3,
+  }
+})
+
+/** 等级：与教研组口径一致，三项都写「依据」，不出现无来源的分数 */
+const indicators = computed(() => {
+  const freq = average.value
+  const specDrift = spec.value ? Math.abs(spec.value.thickness - spec.value.standard) / spec.value.standard : 0
+  return [
+    {
+      key: 'freq',
+      label: '切配频率',
+      value: freq ? `${freq.toFixed(1)} 次/秒` : '—',
+      level: !freq ? 'pending' : freq >= 1.8 ? 'good' : freq >= 1.2 ? 'fair' : 'poor',
+      basis: '单位时间内的有效切割次数；低于 1.2 次/秒视为节奏过慢',
+    },
+    {
+      key: 'uniform',
+      label: '节奏均匀度',
+      value: samples.value.length >= 3 ? `${uniformity.value}%` : '—',
+      level: !samples.value.length ? 'pending' : uniformity.value >= 80 ? 'good' : uniformity.value >= 65 ? 'fair' : 'poor',
+      basis: '窗口内频率的离散程度（变异系数），越稳分越高',
+    },
+    {
+      key: 'spec',
+      label: '成丝规格',
+      value: spec.value ? `${spec.value.thickness}mm × ${spec.value.length}mm` : '—',
+      level: !spec.value ? 'pending' : specDrift <= 0.1 ? 'good' : specDrift <= 0.2 ? 'fair' : 'poor',
+      basis: `抽帧测量截面尺寸，课程标准为 ${spec.value?.standard ?? 3}mm 见方`,
+    },
+    {
+      key: 'continuity',
+      label: '操作连续性',
+      value: samples.value.length >= 4 ? `${continuity.value}%` : '—',
+      level: !samples.value.length ? 'pending' : continuity.value >= 85 ? 'good' : continuity.value >= 70 ? 'fair' : 'poor',
+      basis: '窗口内出现明显停手（<0.8 次/秒）的比例，反映操作是否连贯',
+    },
+  ]
+})
+
+const LEVEL_LABEL: Record<string, string> = {
+  good: '良好',
+  fair: '一般',
+  poor: '偏弱',
+  pending: '未采集',
+}
+
+function exportResult(): void {
+  if (!samples.value.length) {
+    ElMessage.warning('还没有采集到数据，先开始分析')
+    return
+  }
+  downloadCsv(
+    safeFilename(`食材预处理-${ownerName.value}`),
+    [
+      { header: '学生', value: () => ownerName.value },
+      { header: '工位', value: () => target.value.seat },
+      { header: '累计刀数', value: () => cuts.value },
+      { header: '平均频率(次/秒)', value: () => average.value.toFixed(2) },
+      { header: '节奏均匀度(%)', value: () => uniformity.value },
+      { header: '操作连续性(%)', value: () => continuity.value },
+      { header: '成丝厚度(mm)', value: () => spec.value?.thickness ?? '' },
+      { header: '成丝长度(mm)', value: () => spec.value?.length ?? '' },
+      { header: '采集时长(s)', value: () => Math.round(elapsed.value) },
+      { header: '导出时间', value: () => formatDateTime(Date.now(), 'YYYY-MM-DD HH:mm:ss') },
+    ],
+    [{}],
+  )
+  ElMessage.success('已导出本次预处理指标')
+}
 
 /** 折线坐标：把采样点映射到 320x96 的视口里 */
 const polyline = computed(() => {
@@ -86,6 +190,7 @@ async function toggle(): Promise<void> {
   samples.value = []
   cuts.value = 0
   elapsed.value = 0
+  keyframes.value = []
 
   timer = window.setInterval(() => {
     // 以 0.6 为基准做小幅波动，模拟刀刃起落节奏
@@ -93,6 +198,17 @@ async function toggle(): Promise<void> {
     samples.value = [...samples.value.slice(-39), Math.max(0, v)]
     cuts.value += Math.round(v * 1.5)
     elapsed.value += 1.5
+
+    // 每 6 秒留一张关键帧，点击可看「这个数字对应的画面」
+    if (samples.value.length % 4 === 0) {
+      const frame: Keyframe = {
+        id: `kf_${Date.now()}`,
+        at: Math.round(elapsed.value),
+        label: `第 ${cuts.value} 刀 · ${v.toFixed(1)} 次/秒`,
+        image: prepShot,
+      }
+      keyframes.value = [frame, ...keyframes.value].slice(0, 6)
+    }
   }, 1500)
 }
 
@@ -106,6 +222,7 @@ watch(
     samples.value = []
     cuts.value = 0
     elapsed.value = 0
+    keyframes.value = []
   },
 )
 
@@ -162,6 +279,7 @@ const endpoints = [
     state-text="待对接"
   >
     <template #actions>
+      <el-button v-if="samples.length" @click="exportResult">导出结果</el-button>
       <el-button :type="running ? 'default' : 'primary'" @click="toggle">
         {{ running ? '停止分析' : isReviewing ? '分析该生录像' : '开始分析' }}
       </el-button>
@@ -238,6 +356,49 @@ const endpoints = [
         </dl>
       </section>
     </div>
+
+    <!-- 指标：每项都写数值、等级与依据，不出现无来源的分数 -->
+    <section class="app-card">
+      <header class="card-head">
+        <h2>可观测指标</h2>
+        <span class="card-head__hint">{{ ownerName }} · 采集 {{ Math.round(elapsed) }} s</span>
+      </header>
+
+      <ul class="indicator-list">
+        <li v-for="item in indicators" :key="item.key" class="indicator">
+          <div class="indicator__head">
+            <span class="indicator__label">{{ item.label }}</span>
+            <span class="indicator__level" :class="`is-${item.level}`">
+              {{ LEVEL_LABEL[item.level] }}
+            </span>
+            <strong class="indicator__value num">{{ item.value }}</strong>
+          </div>
+          <p class="indicator__basis">{{ item.basis }}</p>
+        </li>
+      </ul>
+
+      <!-- 关键帧 -->
+      <div v-if="keyframes.length" class="frames">
+        <header class="frames__head">
+          <h3>关键帧</h3>
+          <span>点击放大，时间点为相对开始时刻</span>
+        </header>
+        <ul class="frames__list">
+          <li v-for="frame in keyframes" :key="frame.id" class="frame">
+            <el-image
+              :src="frame.image"
+              :preview-src-list="[frame.image]"
+              fit="cover"
+              preview-teleported
+              class="frame__img"
+            />
+            <span class="frame__at num">{{ frame.at }}s</span>
+            <span class="frame__label">{{ frame.label }}</span>
+          </li>
+        </ul>
+      </div>
+      <p v-else class="frames__empty">开始分析后，每 6 秒留一张关键帧，用于核对频率曲线的峰值与停手点。</p>
+    </section>
 
     <section class="app-card">
       <header class="card-head">
@@ -465,9 +626,152 @@ const endpoints = [
   }
 }
 
+.indicator-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $space-3 $space-5;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.indicator {
+  padding: 10px 0;
+  border-top: 1px solid $color-border-light;
+
+  &__head {
+    display: flex;
+    gap: $space-2;
+    align-items: baseline;
+  }
+
+  &__label {
+    font-size: $font-size-sm;
+    color: $color-text-regular;
+  }
+
+  &__level {
+    font-size: 10px;
+
+    &.is-good {
+      color: $color-success;
+    }
+
+    &.is-fair {
+      color: $color-warning;
+    }
+
+    &.is-poor {
+      color: $color-danger;
+    }
+
+    &.is-pending {
+      color: $color-text-placeholder;
+    }
+  }
+
+  &__value {
+    margin-left: auto;
+    font-size: $font-size-sm;
+    font-weight: $font-weight-medium;
+    color: $color-text-primary;
+  }
+
+  &__basis {
+    margin: 3px 0 0;
+    font-size: 11px;
+    line-height: 1.6;
+    color: $color-text-placeholder;
+  }
+}
+
+.frames {
+  padding-top: $space-4;
+  margin-top: $space-4;
+  border-top: 1px solid $color-border-light;
+
+  &__head {
+    display: flex;
+    gap: $space-2;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: $space-2;
+
+    h3 {
+      margin: 0;
+      font-size: $font-size-sm;
+      font-weight: $font-weight-medium;
+      color: $color-text-primary;
+    }
+
+    span {
+      font-size: 11px;
+      color: $color-text-placeholder;
+    }
+  }
+
+  &__list {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  &__empty {
+    padding-top: $space-3;
+    margin: $space-3 0 0;
+    font-size: $font-size-xs;
+    color: $color-text-placeholder;
+    border-top: 1px solid $color-border-light;
+  }
+}
+
+.frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: $radius-sm;
+
+  &__img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: $color-bg-subtle;
+  }
+
+  &__at {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    padding: 0 4px;
+    font-size: 9px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 2px;
+  }
+
+  &__label {
+    display: block;
+    padding: 3px 2px 0;
+    overflow: hidden;
+    font-size: 9.5px;
+    color: $color-text-placeholder;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 1280px) {
   .prep-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .indicator-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .frames__list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 </style>

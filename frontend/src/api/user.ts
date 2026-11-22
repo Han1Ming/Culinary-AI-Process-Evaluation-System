@@ -1,8 +1,10 @@
 import { http } from '@/utils/request'
 import { USE_MOCK } from '@/utils/env'
-import { mockDashboard, mockDelay, mockMyOverview, mockUsers } from '@/mock'
+import { mockDelay, mockUsers } from '@/mock'
+import { mockMyOverviewFor, queryMockDashboard } from '@/mock/workbench'
 import type {
   DashboardOverview,
+  DashboardQuery,
   MyOverview,
   PageResult,
   User,
@@ -12,7 +14,7 @@ import type {
 
 /**
  * 用户管理接口（系统管理模块）
- * 接口路径统一 /v1/users，与 FastAPI 端 users.py 对应
+ * 接口路径统一 /users（baseURL 已含 /api/v1），与 FastAPI 端 users.py 对应
  * 说明：教师后续新增业务模块时，按同样方式在 api/ 下新建文件即可
  */
 
@@ -42,7 +44,7 @@ export async function fetchUsers(query: UserQuery): Promise<PageResult<User>> {
       pageSize: query.pageSize,
     }
   }
-  return http.get<PageResult<User>>('/v1/users', query)
+  return http.get<PageResult<User>>('/users', query)
 }
 
 export async function createUser(payload: UserForm): Promise<User> {
@@ -63,7 +65,7 @@ export async function createUser(payload: UserForm): Promise<User> {
     mockDb.unshift(user)
     return user
   }
-  return http.post<User>('/v1/users', payload)
+  return http.post<User>('/users', payload)
 }
 
 export async function updateUser(id: number, payload: UserForm): Promise<User> {
@@ -74,7 +76,7 @@ export async function updateUser(id: number, payload: UserForm): Promise<User> {
     mockDb[index] = { ...mockDb[index], ...payload, email: payload.email || undefined }
     return mockDb[index]
   }
-  return http.put<User>(`/v1/users/${id}`, payload)
+  return http.put<User>(`/users/${id}`, payload)
 }
 
 /**
@@ -92,7 +94,7 @@ export async function updateUserFace(id: number, facePhoto: string): Promise<voi
     mockDb[index] = { ...mockDb[index], facePhoto, faceRegistered: true }
     return
   }
-  await http.put<null>(`/v1/users/${id}/face`, { facePhoto })
+  await http.put<null>(`/users/${id}/face`, { facePhoto })
 }
 
 export async function deleteUser(id: number): Promise<void> {
@@ -102,20 +104,22 @@ export async function deleteUser(id: number): Promise<void> {
     if (index !== -1) mockDb.splice(index, 1)
     return
   }
-  await http.delete<null>(`/v1/users/${id}`)
+  await http.delete<null>(`/users/${id}`)
 }
 
-/** 工作台概览 GET /v1/dashboard/overview（教师 / 管理员） */
-export async function fetchDashboardOverview(): Promise<DashboardOverview> {
+/** 工作台概览 GET /dashboard/overview?courseId&classId&taskId（教师 / 管理员） */
+export async function fetchDashboardOverview(
+  query: DashboardQuery = {},
+): Promise<DashboardOverview> {
   if (USE_MOCK) {
     await mockDelay(260)
-    return mockDashboard
+    return queryMockDashboard(query)
   }
-  return http.get<DashboardOverview>('/v1/dashboard/overview')
+  return http.get<DashboardOverview>('/dashboard/overview', query)
 }
 
 /**
- * 学生工作台 GET /v1/dashboard/me
+ * 学生工作台 GET /dashboard/me
  * ----------------------------------------------------------------------------
  * 单独一个接口而不是给 overview 加角色参数：两者的字段集合差别太大，
  * 合成一个会让后端在每个分支里塞一堆空字段，学生也不该拿到班级维度的数据。
@@ -123,7 +127,7 @@ export async function fetchDashboardOverview(): Promise<DashboardOverview> {
 export async function fetchMyOverview(): Promise<MyOverview> {
   if (USE_MOCK) {
     await mockDelay(260)
-    return mockMyOverview
+    return mockMyOverviewFor()
   }
-  return http.get<MyOverview>('/v1/dashboard/me')
+  return http.get<MyOverview>('/dashboard/me')
 }

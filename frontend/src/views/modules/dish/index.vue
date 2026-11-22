@@ -2,20 +2,31 @@
 /**
  * 菜肴成品分析
  * ----------------------------------------------------------------------------
- * 学生拍照上传 → 多模态模型打分 → 五维分数 + 文字评语。
- * 演示阶段前端模拟推理结果，但上传、压缩、预览、评分展示的链路是完整的，
- * 后端接上后只需把 mockAnalyze 换成 api 调用。
+ * 学生拍照 → 上传（带进度）→ 多模态评分 → 五维分数 + 理由 + 改进建议。
+ * 三条硬规则：
+ *   1. 上传前校验格式 / 大小，失败给出原因，不静默丢弃；
+ *   2. 教师可改分，但必须写原因，AI 原始分一直保留在页面上；
+ *   3. 明确写出「照片判不了口味、内部熟度与食品安全」，不越界。
  *
- * 教师视角：预览区显示的是被选中学生提交的那张成品图，教师不再自己上传，
- * 只负责分析、复核与扣分。
+ * 教师视角：预览区是学生提交的那张图，教师只负责复核与改分。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import ModuleShell from '@/components/ModuleShell.vue'
+import ReviewActions from '@/components/ReviewActions.vue'
 import TeacherReview from '@/components/TeacherReview.vue'
+import { analyzeDish, fetchDishHistory, overrideDish, reviewDish } from '@/api/dish'
+import type { DishReviewAction } from '@/api/dish'
+import { uploadFile } from '@/api/file'
 import { useRole } from '@/composables/useRole'
 import { useReviewStore } from '@/stores/review'
+import { askReason } from '@/utils/confirm'
+import { formatDateTime } from '@/utils/format'
+import { IMAGE_RULE, compressImageBlob, formatFileSize, validateFile } from '@/utils/upload'
+import { dishGrade } from '@/types/dish'
+import type { DishAnalysis, DishDimension, DishRecord } from '@/types/dish'
+import type { ReviewState } from '@/types/summary'
 import dishSample from '@/assets/images/dish-plated.jpg'
 
 const { can } = useRole()
@@ -34,61 +45,141 @@ const reviewItems = [
   { label: '灶台未清理', points: 2 },
 ]
 
-interface Dimension {
-  key: string
-  label: string
-  score: number
-  weight: number
+const previewUrl = ref('')
+const fileInput = ref<HTMLInputElement>()
+const uploaded = ref<{ fileId: string; name: string; size: number } | null>(null)
+const uploading = ref(false)
+const uploadPercent = ref(0)
+
+const analyzing = ref(false)
+const analysis = ref<DishAnalysis | null>(null)
+const recordId = ref('')
+
+const editing = ref(false)
+const draft = ref<DishDimension[]>([])
+const saving = ref(false)
+
+/* ---------------- 复核状态（确认 / 驳回 / 转复核） ---------------- */
+const reviewState = ref<ReviewState>('pending')
+const reviewedAt = ref('')
+const reviewedBy = ref('')
+const reviewNote = ref('')
+const reviewingDish = ref(false)
+
+async function doReview(action: DishReviewAction): Promise<void> {
+  if (!recordId.value) {
+    ElMessage.warning('还没有可复核的分析记录')
+    return
+  }
+  let note = ''
+  if (action === 'reject') {
+    const reason = await askReason({
+      title: '驳回这次成品分析',
+      message: '驳回后学生需要重新拍摄上传，原因会显示在学生的成品页。',
+      placeholder: '例如：照片反光，芡汁挂壁判断不成立，请补拍侧角度',
+    })
+    if (!reason) return
+    note = reason
+  }
+  if (action === 'hold') {
+    const reason = await askReason({
+      title: '转复核',
+      message: '转复核表示当场定不了，留给课后或教研组，不计入待归档。',
+      placeholder: '例如：需要对照标准样菜再定摆盘分',
+    })
+    if (!reason) return
+    note = reason
+  }
+
+  reviewingDish.value = true
+  try {
+    const result = await reviewDish(recordId.value, action, note)
+    reviewState.value = result.reviewState
+    reviewedAt.value = result.reviewedAt
+    reviewedBy.value = result.reviewedBy
+    reviewNote.value = note
+    const labels: Record<DishReviewAction, string> = {
+      confirm: '已确认这次分析结果',
+      reject: '已驳回，学生需重新上传',
+      hold: '已转复核，等待教研组',
+    }
+    ElMessage.success(labels[action])
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '复核操作失败')
+  } finally {
+    reviewingDish.value = false
+  }
 }
 
-// 默认载入一张示例成品：空白的上传框会让页面看起来像没做完，
-// 而演示时讲师通常先讲「一张照片进来会得到什么」
-const previewUrl = ref<string>(dishSample)
-const analyzing = ref(false)
-const analyzed = ref(false)
-const remark = ref('')
-const fileInput = ref<HTMLInputElement>()
+const history = ref<DishRecord[]>([])
+const historyLoading = ref(false)
 
-const dimensions = ref<Dimension[]>([
-  { key: 'appearance', label: '食材外观', score: 0, weight: 0.25 },
-  { key: 'plating', label: '摆盘艺术', score: 0, weight: 0.2 },
-  { key: 'color', label: '色彩搭配', score: 0, weight: 0.2 },
-  { key: 'craft', label: '制作工艺', score: 0, weight: 0.2 },
-  { key: 'creativity', label: '创意', score: 0, weight: 0.15 },
-])
-
-const totalScore = computed(() =>
-  analyzed.value
-    ? Math.round(dimensions.value.reduce((sum, d) => sum + d.score * d.weight, 0))
-    : 0,
+const dims = computed<DishDimension[]>(() => (editing.value ? draft.value : analysis.value?.dimensions ?? []))
+const total = computed(() =>
+  editing.value
+    ? Math.round(draft.value.reduce((sum, item) => sum + item.score * item.weight, 0))
+    : analysis.value?.total ?? 0,
 )
+const grade = computed(() => (total.value ? dishGrade(total.value) : '—'))
 
 function pickFile(): void {
   fileInput.value?.click()
 }
 
-function onFile(event: Event): void {
+async function onFile(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
+  input.value = ''
   if (!file) return
-  if (!file.type.startsWith('image/')) {
-    ElMessage.warning('请选择图片文件')
+
+  const invalid = validateFile(file, IMAGE_RULE)
+  if (invalid) {
+    ElMessage.warning(invalid)
     return
   }
-  previewUrl.value = URL.createObjectURL(file)
-  reset()
-  input.value = ''
+
+  uploading.value = true
+  uploadPercent.value = 0
+  try {
+    const compressed = await compressImageBlob(file, 1600, 0.82)
+    if (previewUrl.value.startsWith('blob:')) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = URL.createObjectURL(compressed)
+
+    const form = new File([compressed], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' })
+    uploaded.value = await uploadFile(form, {
+      onProgress: (percent) => {
+        uploadPercent.value = percent
+      },
+    })
+    resetAnalysis()
+    ElMessage.success(`已上传 ${formatFileSize(form.size)}`)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '上传失败，请重试')
+    previewUrl.value = ''
+    uploaded.value = null
+  } finally {
+    uploading.value = false
+  }
 }
 
 function useSample(): void {
   previewUrl.value = dishSample
-  reset()
+  uploaded.value = { fileId: 'file_sample', name: 'dish-plated.jpg', size: 0 }
+  resetAnalysis()
 }
 
-function reset(): void {
-  analyzed.value = false
-  remark.value = ''
-  dimensions.value = dimensions.value.map((d) => ({ ...d, score: 0 }))
+function removeImage(): void {
+  if (previewUrl.value.startsWith('blob:')) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = ''
+  uploaded.value = null
+  resetAnalysis()
+}
+
+function resetAnalysis(): void {
+  analysis.value = null
+  editing.value = false
+  draft.value = []
+  recordId.value = ''
 }
 
 /** 换人时换图并清空结果：上一个学生的评分挂在新学生名下是最容易出错的一类 bug */
@@ -96,76 +187,159 @@ watch(
   () => target.value.id,
   () => {
     if (!isReviewing.value) return
-    previewUrl.value = dishSample
-    reset()
+    if (previewUrl.value.startsWith('blob:')) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = ''
+    uploaded.value = null
+    resetAnalysis()
+    void loadHistory()
   },
 )
 
 async function analyze(): Promise<void> {
-  if (!previewUrl.value) {
+  if (!uploaded.value) {
     ElMessage.warning('请先上传菜品照片')
     return
   }
   analyzing.value = true
-  await new Promise((r) => setTimeout(r, 1500))
-
-  dimensions.value = dimensions.value.map((d) => ({
-    ...d,
-    score: Math.round(72 + Math.random() * 24),
-  }))
-  analyzed.value = true
-  analyzing.value = false
-  remark.value =
-    '成品整体完成度较高：鱼皮呈均匀金黄色，火候控制稳定；配菜切配规格一致，断面整齐。摆盘采用偏左侧的留白式构图，视觉重心明确。改进建议：酱汁点缀距离主体略远，收汁浓度可以再收紧一档，避免盘底出现渗液。'
+  try {
+    const result = await analyzeDish(
+      {
+        fileId: uploaded.value.fileId,
+        taskId: 'task_20261121_01',
+        studentId: target.value.id,
+      },
+      target.value.id,
+    )
+    analysis.value = result
+    recordId.value = `dish_${target.value.id}_${Date.now()}`
+    editing.value = false
+    // 新的一次分析 = 新的复核对象，上一份的确认/驳回不能带过来
+    reviewState.value = 'pending'
+    reviewedAt.value = ''
+    reviewedBy.value = ''
+    reviewNote.value = ''
+    ElMessage.success(`分析完成：${result.total} 分（${result.grade}）`)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '分析失败，请稍后重试')
+  } finally {
+    analyzing.value = false
+  }
 }
+
+function startEdit(): void {
+  if (!analysis.value) return
+  draft.value = analysis.value.dimensions.map((item) => ({ ...item }))
+  editing.value = true
+}
+
+function cancelEdit(): void {
+  editing.value = false
+  draft.value = []
+}
+
+async function saveOverride(): Promise<void> {
+  if (!analysis.value) return
+  const reason = await askReason({
+    title: '修改评分原因',
+    message: 'AI 原始分数会保留，教师复核结果单独记录，归档以复核结果为准。',
+    placeholder: '例如：盘边有指印，摆盘扣 3 分',
+  })
+  if (!reason) return
+
+  saving.value = true
+  try {
+    await overrideDish(recordId.value, {
+      dimensions: draft.value.map((item) => ({ key: item.key, score: item.score })),
+      remark: analysis.value.remark,
+      reason,
+    })
+    analysis.value = {
+      ...analysis.value,
+      dimensions: draft.value.map((item) => ({ ...item })),
+      total: total.value,
+      grade: dishGrade(total.value),
+      remark: `${analysis.value.remark}\n\n教师复核（${reason}）：复核后总分 ${total.value} 分。`,
+    }
+    editing.value = false
+    ElMessage.success('复核结果已保存，AI 原始分已保留')
+    await loadHistory()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function loadHistory(): Promise<void> {
+  historyLoading.value = true
+  try {
+    history.value = await fetchDishHistory(target.value.id)
+  } catch {
+    history.value = []
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+onMounted(loadHistory)
 
 const endpoints = [
   {
+    name: '文件上传',
+    method: 'POST' as const,
+    path: '/api/v1/files',
+    note: '先传图拿 fileId，再调分析接口；multipart 上传，前端显示百分比进度。校验：JPG / PNG / WebP，≤ 4MB，一次 1 张。',
+    request: `FormData { file: <jpeg, 长边已压到 1600px> }`,
+    response: `{ "code": 0, "data": { "fileId": "file_20261121_01", "url": "https://oss.example.com/dish/01.jpg", "name": "dish.jpg", "size": 286720 } }`,
+  },
+  {
     name: '成品评分',
     method: 'POST' as const,
-    path: '/api/modules/dish/analyze',
-    note: '上传菜品照片，后端调用多模态模型返回五维分数与评语，单次耗时约 3-6 秒。',
-    request: `FormData {
-  image: <jpeg, <= 4MB>,
-  task_id: "task_20261120_01",
-  student_id: 1001,
-  rubric_id: 3
+    path: '/api/v1/dish/analyze',
+    note: '五维分数必须带 reason 与 advice，前端直接展示；不准只返回总分。',
+    request: `{
+  "fileId": "file_20261121_01",
+  "taskId": "task_20261121_01",
+  "studentId": 1001,
+  "rubricId": 3
 }`,
     response: `{
   "code": 0,
   "data": {
     "total": 88,
+    "grade": "良好",
+    "generatedAt": "2026-11-21 11:32",
+    "modelVersion": "vision-dish-v2.4",
     "dimensions": [
-      { "key": "appearance", "score": 90, "weight": 0.25 },
-      { "key": "plating",    "score": 86, "weight": 0.20 },
-      { "key": "color",      "score": 91, "weight": 0.20 },
-      { "key": "craft",      "score": 87, "weight": 0.20 },
-      { "key": "creativity", "score": 84, "weight": 0.15 }
+      { "key": "appearance", "label": "食材外观", "weight": 0.25, "score": 90, "reason": "挂糊均匀……", "advice": "复炸火候降一档" }
     ],
-    "remark": "鱼皮呈均匀金黄色……",
-    "image_url": "https://oss.example.com/dish/1024.jpg"
-  },
-  "message": "ok"
+    "remark": "成品整体完成度较高……"
+  }
 }`,
   },
   {
-    name: '评分标准',
-    method: 'GET' as const,
-    path: '/api/modules/dish/rubric',
-    note: '评分维度与权重由教研组配置，前端据此渲染维度条，不写死维度名。',
-    request: `{ "rubric_id": 3 }`,
-    response: `{
-  "code": 0,
-  "data": {
-    "id": 3,
-    "name": "中餐热菜成品评分",
-    "dimensions": [
-      { "key": "appearance", "label": "食材外观", "weight": 0.25 }
-    ],
-    "pass_score": 60
+    name: '教师改分',
+    method: 'PUT' as const,
+    path: '/api/v1/dish/{id}/override',
+    note: 'AI 原始结果不覆盖；复核结果、原因、操作人单独入库。',
+    request: `{ "dimensions": [{ "key": "plating", "score": 82 }], "remark": "……", "reason": "盘边有指印，摆盘扣 3 分" }`,
+    response: `{ "code": 0, "data": { "id": "dish_...", "total": 85, "reviewed": true } }`,
   },
-  "message": "ok"
-}`,
+  {
+    name: '教师复核',
+    method: 'POST' as const,
+    path: '/api/v1/dish/{id}/review',
+    note: '确认 / 驳回 / 转复核三动作；驳回与转复核必须带 note，原因回传给学生会看到。',
+    request: `{ "action": "reject", "note": "照片反光，芡汁挂壁判断不成立，请补拍侧角度" }`,
+    response: `{ "code": 0, "data": { "reviewState": "rejected", "reviewedAt": "2026-11-22 15:10", "reviewedBy": "陈立群" } }`,
+  },
+  {
+    name: '历史查询',
+    method: 'GET' as const,
+    path: '/api/v1/dish/history',
+    note: '按学生 + 任务查询；学生只能查本人，教师按授权范围。',
+    request: `GET /api/v1/dish/history?studentId=1001&page=1&pageSize=10`,
+    response: `{ "code": 0, "data": [{ "id": "dish_01", "dish": "糖醋里脊", "total": 88, "grade": "良好", "at": "2026-11-21 11:32", "reviewed": true }] }`,
   },
 ]
 </script>
@@ -173,13 +347,20 @@ const endpoints = [
 <template>
   <ModuleShell
     title="菜肴成品分析"
-    subtitle="拍照上传成品菜，从五个维度给出评分与评语"
+    subtitle="拍照上传成品菜，从五个维度给出评分、理由与改进建议"
     :endpoints="endpoints"
     :ready="false"
     state-text="待对接"
   >
     <template #actions>
-      <el-button v-if="!isReviewing" @click="useSample">载入示例</el-button>
+      <el-button v-if="!isReviewing" :disabled="uploading" @click="useSample">载入示例</el-button>
+      <el-button
+        v-if="!isReviewing"
+        :disabled="uploading || analyzing"
+        @click="pickFile"
+      >
+        选择照片
+      </el-button>
       <el-button type="primary" :loading="analyzing" @click="analyze">
         {{ analyzing ? '分析中…' : '开始分析' }}
       </el-button>
@@ -191,29 +372,55 @@ const endpoints = [
         <div
           class="upload__stage"
           :class="{ 'is-empty': !previewUrl, 'is-locked': isReviewing }"
-          @click="isReviewing ? undefined : pickFile()"
+          @click="isReviewing || uploading ? undefined : pickFile()"
         >
           <img v-if="previewUrl" :src="previewUrl" alt="待分析的菜品照片" class="upload__img" />
 
           <div v-else class="upload__hint">
-            <p>点击选择菜品照片</p>
-            <span>支持 JPG / PNG，建议在自然光下俯拍，画面只保留餐盘</span>
+            <p>{{ isReviewing ? `${target.name} 尚未提交成品照片` : '点击选择菜品照片' }}</p>
+            <span>
+              支持 {{ IMAGE_RULE.typeLabel }}，单张 ≤ {{ IMAGE_RULE.maxSizeMB }}MB；
+              建议自然光下俯拍，画面只保留餐盘
+            </span>
+            <span v-if="!isReviewing" class="upload__mobile">手机端可直接调起相机拍摄</span>
           </div>
 
           <div v-if="analyzing" class="upload__scan" aria-hidden="true" />
         </div>
 
+        <!-- 上传进度 -->
+        <div v-if="uploading" class="upload__progress">
+          <el-progress :percentage="uploadPercent" :stroke-width="4" :show-text="false" />
+          <span class="num">上传中 {{ uploadPercent }}%</span>
+        </div>
+
         <footer class="upload__bar">
-          <button v-if="!isReviewing" type="button" class="link-btn" @click="pickFile">重新选择</button>
-          <span v-else class="upload__name">{{ target.name }} · 学号 {{ target.studentNo }}</span>
-          <span v-if="previewUrl && !isReviewing" class="upload__name">已就绪</span>
+          <template v-if="isReviewing">
+            <span class="upload__name">{{ target.name }} · 学号 {{ target.studentNo }}</span>
+          </template>
+          <template v-else>
+            <button type="button" class="link-btn" :disabled="uploading" @click="pickFile">重新选择</button>
+            <button
+              v-if="previewUrl"
+              type="button"
+              class="link-btn is-danger"
+              :disabled="uploading"
+              @click="removeImage"
+            >
+              删除
+            </button>
+            <span v-if="uploaded" class="upload__name num">
+              {{ uploaded.name }}<template v-if="uploaded.size"> · {{ formatFileSize(uploaded.size) }}</template>
+            </span>
+          </template>
         </footer>
 
         <input
           v-if="!isReviewing"
           ref="fileInput"
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
           class="upload__file"
           @change="onFile"
         />
@@ -223,36 +430,104 @@ const endpoints = [
       <section class="app-card score-card">
         <header class="card-head">
           <h2>{{ isReviewing ? `${target.name} · 评分结果` : '评分结果' }}</h2>
-          <span class="score-card__total num">
-            {{ analyzed ? totalScore : '—' }}
-            <em>总分</em>
-          </span>
+          <div class="score-card__right">
+            <span class="score-card__total num">
+              {{ analysis || editing ? total : '—' }}
+              <em>总分</em>
+            </span>
+            <span v-if="analysis || editing" class="score-card__grade">{{ grade }}</span>
+          </div>
         </header>
 
-        <ul class="dim-list">
-          <li v-for="dim in dimensions" :key="dim.key" class="dim">
+        <ReviewActions
+          v-if="analysis"
+          :state="reviewState"
+          :reviewed-by="reviewedBy"
+          :reviewed-at="reviewedAt"
+          :note="reviewNote"
+          :can-review="can('module.review')"
+          :loading="reviewingDish"
+          @confirm="doReview('confirm')"
+          @reject="doReview('reject')"
+          @hold="doReview('hold')"
+        />
+
+        <ul v-if="dims.length" class="dim-list">
+          <li v-for="dim in dims" :key="dim.key" class="dim">
             <div class="dim__head">
               <span class="dim__label">{{ dim.label }}</span>
-              <span class="dim__score num">{{ analyzed ? dim.score : '—' }}</span>
+              <span v-if="editing" class="dim__edit">
+                <el-input-number v-model="dim.score" :min="0" :max="100" size="small" controls-position="right" />
+              </span>
+              <span v-else class="dim__score num">{{ dim.score }}</span>
             </div>
             <div class="dim__track">
-              <div
-                class="dim__fill"
-                :style="{ width: analyzed ? `${dim.score}%` : '0%' }"
-              />
+              <div class="dim__fill" :style="{ width: `${dim.score}%` }" />
             </div>
+            <p class="dim__reason">{{ dim.reason }}</p>
+            <p class="dim__advice">改进：{{ dim.advice }}</p>
             <span class="dim__weight">权重 {{ Math.round(dim.weight * 100) }}%</span>
           </li>
         </ul>
+        <p v-else class="score-empty">上传照片后点击「开始分析」，五个维度的分数与理由会显示在这里</p>
+
+        <footer v-if="analysis" class="score-foot">
+          <span class="num">
+            生成于 {{ formatDateTime(analysis.generatedAt, 'YYYY-MM-DD HH:mm') }} · 模型
+            {{ analysis.modelVersion }}
+          </span>
+          <div v-if="can('module.review')" class="score-foot__actions">
+            <template v-if="editing">
+              <el-button size="small" :disabled="saving" @click="cancelEdit">取消</el-button>
+              <el-button size="small" type="primary" :loading="saving" @click="saveOverride">
+                保存复核
+              </el-button>
+            </template>
+            <el-button v-else size="small" @click="startEdit">修改分数</el-button>
+          </div>
+        </footer>
       </section>
     </div>
 
-    <section v-if="analyzed" class="app-card">
+    <section v-if="analysis" class="app-card">
       <header class="card-head">
         <h2>评语</h2>
-        <span class="card-head__hint">由多模态模型生成，教师可修改后归档</span>
+        <span class="card-head__hint">
+          由多模态模型生成<template v-if="can('module.review')">，教师可改分并保留 AI 原始结果</template>
+        </span>
       </header>
-      <p class="remark">{{ remark }}</p>
+      <p class="remark">{{ analysis.remark }}</p>
+      <p class="disclaimer">
+        说明：照片分析只能评价外观与呈现，<strong>不能</strong>判断真实口味、内部熟度与食品安全；
+        相关结论以现场品评与教师复核为准。
+      </p>
+    </section>
+
+    <!-- 历史 -->
+    <section class="app-card">
+      <header class="card-head">
+        <h2>历史成品评价</h2>
+        <span class="card-head__hint">共 {{ history.length }} 次</span>
+      </header>
+
+      <p v-if="historyLoading" class="history-empty">正在加载…</p>
+      <p v-else-if="!history.length" class="history-empty">还没有历史记录</p>
+      <ul v-else class="history">
+        <li v-for="item in history" :key="item.id" class="history-row">
+          <el-image :src="item.image" fit="cover" class="history-row__img" />
+          <div class="history-row__body">
+            <p class="history-row__dish">
+              {{ item.dish }}
+              <span v-if="item.reviewed" class="history-row__flag">已复核</span>
+            </p>
+            <span class="history-row__meta num">{{ item.at }} · {{ item.id }}</span>
+          </div>
+          <div class="history-row__score">
+            <strong class="num">{{ item.total }}</strong>
+            <span>{{ item.grade }}</span>
+          </div>
+        </li>
+      </ul>
     </section>
 
     <TeacherReview
@@ -267,7 +542,7 @@ const endpoints = [
 <style scoped lang="scss">
 .dish-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   gap: $space-4;
 }
 
@@ -284,7 +559,6 @@ const endpoints = [
     background: $color-bg-subtle;
     aspect-ratio: 4 / 3;
 
-    // 教师视角：图是学生交的，点不进上传
     &.is-locked {
       cursor: default;
     }
@@ -323,14 +597,17 @@ const endpoints = [
     }
 
     span {
-      max-width: 260px;
+      max-width: 280px;
       font-size: $font-size-xs;
       line-height: 1.6;
       color: $color-text-placeholder;
     }
   }
 
-  // 分析中的扫描线：只做一条 1px 的移动线，不放大面积动效
+  &__mobile {
+    color: $color-text-secondary !important;
+  }
+
   &__scan {
     position: absolute;
     right: 0;
@@ -341,17 +618,38 @@ const endpoints = [
     animation: scan 1.6s linear infinite;
   }
 
+  &__progress {
+    display: flex;
+    gap: $space-2;
+    align-items: center;
+    padding: 8px 16px;
+    border-top: 1px solid $color-border-light;
+
+    .el-progress {
+      flex: 1;
+    }
+
+    span {
+      font-size: 11px;
+      color: $color-text-secondary;
+    }
+  }
+
   &__bar {
     display: flex;
+    gap: $space-3;
     align-items: center;
-    justify-content: space-between;
     padding: 10px $space-5;
     border-top: 1px solid $color-border-light;
   }
 
   &__name {
+    margin-left: auto;
+    overflow: hidden;
     font-size: $font-size-xs;
-    color: $color-success;
+    color: $color-text-secondary;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__file {
@@ -370,11 +668,20 @@ const endpoints = [
 }
 
 .score-card {
+  display: flex;
+  flex-direction: column;
+
+  &__right {
+    display: flex;
+    gap: $space-2;
+    align-items: baseline;
+  }
+
   &__total {
     display: flex;
     align-items: baseline;
     gap: 4px;
-    font-size: 28px;
+    font-size: 26px;
     font-weight: $font-weight-semibold;
     color: $color-text-primary;
 
@@ -385,6 +692,11 @@ const endpoints = [
       font-weight: $font-weight-regular;
       color: $color-text-placeholder;
     }
+  }
+
+  &__grade {
+    font-size: $font-size-xs;
+    color: $color-text-secondary;
   }
 }
 
@@ -400,7 +712,7 @@ const endpoints = [
 .dim {
   &__head {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
   }
 
@@ -415,9 +727,13 @@ const endpoints = [
     color: $color-text-primary;
   }
 
+  &__edit :deep(.el-input-number) {
+    width: 92px;
+  }
+
   &__track {
     height: 4px;
-    margin-top: 8px;
+    margin-top: 6px;
     overflow: hidden;
     background: $color-bg-sunken;
     border-radius: 2px;
@@ -427,23 +743,155 @@ const endpoints = [
     height: 100%;
     background: $color-text-primary;
     border-radius: 2px;
-    transition: width 700ms $ease-emphasized;
+    transition: width 600ms $ease-emphasized;
+  }
+
+  &__reason {
+    margin: 6px 0 0;
+    font-size: $font-size-xs;
+    line-height: 1.7;
+    color: $color-text-secondary;
+  }
+
+  &__advice {
+    margin: 3px 0 0;
+    font-size: $font-size-xs;
+    line-height: 1.7;
+    color: $color-text-placeholder;
   }
 
   &__weight {
     display: block;
-    margin-top: 5px;
+    margin-top: 4px;
     font-size: 10.5px;
     color: $color-text-placeholder;
   }
 }
 
+.score-empty {
+  padding: $space-6 0;
+  margin: 0;
+  font-size: $font-size-sm;
+  color: $color-text-placeholder;
+  text-align: center;
+}
+
+.score-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-3;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: $space-3;
+  margin-top: auto;
+  font-size: 11px;
+  color: $color-text-placeholder;
+  border-top: 1px solid $color-border-light;
+
+  &__actions {
+    display: flex;
+    gap: $space-2;
+  }
+}
+
 .remark {
-  max-width: 72ch;
+  max-width: 76ch;
   margin: 0;
   font-size: $font-size-base;
   line-height: 1.9;
   color: $color-text-regular;
+  white-space: pre-line;
+}
+
+.disclaimer {
+  padding-top: $space-3;
+  margin: $space-3 0 0;
+  font-size: $font-size-xs;
+  line-height: 1.7;
+  color: $color-text-placeholder;
+  border-top: 1px solid $color-border-light;
+
+  strong {
+    color: $color-text-regular;
+  }
+}
+
+.history {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.history-row {
+  display: flex;
+  gap: $space-3;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid $color-border-light;
+
+  &:first-child {
+    border-top: 0;
+  }
+
+  &__img {
+    flex: 0 0 48px;
+    width: 48px;
+    height: 36px;
+    overflow: hidden;
+    background: $color-bg-subtle;
+    border-radius: $radius-xs;
+  }
+
+  &__body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__dish {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin: 0;
+    font-size: $font-size-sm;
+    color: $color-text-primary;
+  }
+
+  &__flag {
+    font-size: 10px;
+    color: $color-success;
+  }
+
+  &__meta {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    color: $color-text-placeholder;
+  }
+
+  &__score {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+
+    strong {
+      font-size: $font-size-md;
+      font-weight: $font-weight-semibold;
+      color: $color-text-primary;
+    }
+
+    span {
+      font-size: 10px;
+      color: $color-text-placeholder;
+    }
+  }
+}
+
+.history-empty {
+  padding: $space-5 0;
+  margin: 0;
+  font-size: $font-size-sm;
+  color: $color-text-placeholder;
+  text-align: center;
 }
 
 .link-btn {
@@ -457,6 +905,15 @@ const endpoints = [
 
   &:hover {
     color: $color-primary;
+  }
+
+  &.is-danger:hover {
+    color: $color-danger;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 }
 

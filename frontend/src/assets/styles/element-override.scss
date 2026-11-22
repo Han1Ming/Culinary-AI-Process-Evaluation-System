@@ -277,7 +277,13 @@
   padding: 0;
   overflow: hidden;
   border-radius: $radius-xl;
-  box-shadow: $shadow-popper;
+  // 弹窗是最高一层浮层，玻璃要比卡片更"厚"：模糊大、底色更实，
+  // 否则后面的表格会透上来把字挤花
+  background: $glass-bg-strong;
+  border: 1px solid $glass-border;
+  box-shadow: inset 0 1px 0 $glass-highlight, $glass-shadow-raised;
+  backdrop-filter: saturate(170%) blur(18px);
+  -webkit-backdrop-filter: saturate(170%) blur(18px);
 
   .el-dialog__header {
     margin: 0;
@@ -525,7 +531,16 @@
   color: $color-text-regular;
 }
 
-// 抽屉：统一圆角与阴影
+// 抽屉：统一的玻璃层
 .el-drawer {
-  box-shadow: $shadow-popper;
+  background: $glass-bg-strong;
+  box-shadow: inset 0 1px 0 $glass-highlight, $glass-shadow-raised;
+  backdrop-filter: saturate(170%) blur(18px);
+  -webkit-backdrop-filter: saturate(170%) blur(18px);
+
+  .el-drawer__header {
+    padding-bottom: $space-3;
+    margin-bottom: 0;
+    border-bottom: 1px solid rgba(17, 19, 24, 0.06);
+  }
 }

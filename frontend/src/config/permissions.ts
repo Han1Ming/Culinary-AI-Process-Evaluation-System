@@ -15,8 +15,13 @@ export type Capability =
   | 'dashboard.site' // 全站态势（学生只见自己）
   | 'eval.overview' // 评价总览（模块接入进度）
   | 'module.review' // 模块内人工判定 / 直接扣分
+  | 'face.manual' // 教师人工补签
+  | 'face.profile' // 人脸底库注册 / 注销
   | 'summary.class' // 班级名单与他人成绩
+  | 'archive.others' // 查看他人实训档案
   | 'course.upload' // 上传课程菜谱
+  | 'class.roster' // 班级名单与白名单导入
+  | 'device.manage' // 工位 / 摄像头设备管理
   | 'user.manage' // 用户管理
   | 'notice.publish' // 通知发布
   | 'assistant.use' // 浮空助手
@@ -25,8 +30,13 @@ const CAPABILITIES: Record<Capability, UserRole[]> = {
   'dashboard.site': ['teacher', 'admin'],
   'eval.overview': ['teacher', 'admin'],
   'module.review': ['teacher', 'admin'],
+  'face.manual': ['teacher', 'admin'],
+  'face.profile': ['teacher', 'admin'],
   'summary.class': ['teacher', 'admin'],
+  'archive.others': ['teacher', 'admin'],
   'course.upload': ['teacher', 'admin'],
+  'class.roster': ['teacher', 'admin'],
+  'device.manage': ['admin'],
   'user.manage': ['admin'],
   'notice.publish': ['admin'],
   'assistant.use': ['teacher', 'student'],
@@ -34,6 +44,17 @@ const CAPABILITIES: Record<Capability, UserRole[]> = {
 
 export function can(role: UserRole, capability: Capability): boolean {
   return CAPABILITIES[capability].includes(role)
+}
+
+/**
+ * AI 问答的产品名按角色区分
+ * ----------------------------------------------------------------------------
+ * 学生端叫「智能 AI 老师」——对学习者来说它是一个会讲菜谱的角色；
+ * 教师端叫「智能 AI 助手」——对教师来说它是备课与规则答疑的工具，不是"老师"。
+ * 同一个页面、同一套能力，名字不同，语气才对。
+ */
+export function assistantName(role: UserRole): string {
+  return role === 'student' ? '智能 AI 老师' : '智能 AI 助手'
 }
 
 /* ---------------- 角色定位文案 ---------------- */
@@ -138,9 +159,9 @@ export const MODULE_ACCESS: ModuleAccessRow[] = [
     admin: { level: 'manage', note: '全站报表' },
   },
   {
-    module: '智能 AI 老师',
+    module: '智能 AI 助手',
     path: '/chat',
-    student: { level: 'use', note: '问菜品与工艺' },
+    student: { level: 'use', note: '学生端显示为「智能 AI 老师」' },
     teacher: { level: 'use', note: '备课与规则答疑' },
     admin: { level: 'none', note: '不参与' },
   },

@@ -36,6 +36,11 @@ service.interceptors.response.use(
     const payload = error.response?.data
     let message = payload?.message || payload?.detail || error.message
 
+    // 主动取消（切换筛选、离开页面）不是错误，不弹提示
+    if (error.code === 'ERR_CANCELED') {
+      return Promise.reject(new Error('__canceled__'))
+    }
+
     if (status === 401) {
       message = '登录状态已失效，请重新登录'
       if (!redirecting) {
@@ -50,6 +55,8 @@ service.interceptors.response.use(
       message = '当前账号无权访问该资源'
     } else if (status === 404) {
       message = '接口不存在，请核对后端路由'
+    } else if (status === 409) {
+      message = payload?.message || '数据状态已变化，请刷新后重试'
     } else if (status && status >= 500) {
       message = '服务器开小差了，请稍后重试'
     } else if (error.code === 'ECONNABORTED') {
@@ -77,6 +84,13 @@ function unwrap<T>(payload: ApiResponse<T>): T {
 
 type Query = Record<string, unknown>
 
+/** 上传参数：进度回调用于「上传中 62%」，AbortSignal 用于取消 */
+export interface UploadOptions {
+  onProgress?: (percent: number) => void
+  timeout?: number
+  signal?: AbortSignal
+}
+
 export const http = {
   get<T>(url: string, params?: Query, config?: AxiosRequestConfig): Promise<T> {
     return service.get<unknown, ApiResponse<T>>(url, { params, ...config }).then(unwrap)
@@ -89,6 +103,27 @@ export const http = {
   },
   delete<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
     return service.delete<unknown, ApiResponse<T>>(url, config).then(unwrap)
+  },
+  /**
+   * multipart 上传（文件 / 表单）
+   * 不手动设置 Content-Type，交给浏览器生成 boundary。
+   * 上传进度以百分比回调，后端未接入时由本地模拟推进（见 api/upload.ts）。
+   */
+  upload<T>(url: string, form: FormData, options: UploadOptions = {}): Promise<T> {
+    const { onProgress, timeout = 60000, signal } = options
+    return service
+      .post<unknown, ApiResponse<T>>(url, form, {
+        timeout,
+        signal,
+        onUploadProgress: (event) => {
+          if (!onProgress || !event.total) return
+          onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)))
+        },
+      })
+      .then((payload) => {
+        onProgress?.(100)
+        return unwrap(payload)
+      })
   },
 }
 

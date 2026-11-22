@@ -8,7 +8,7 @@ import type { ChatSession } from '@/types'
  * 流式对话不走 axios，由 composables/useSSE 直接 fetch 该地址
  * 后端约定：POST /api/v1/chat，Content-Type: text/event-stream
  */
-export const CHAT_STREAM_URL = `${API_BASE_URL}/v1/chat`
+export const CHAT_STREAM_URL = `${API_BASE_URL}/chat`
 
 /** 会话列表 GET /v1/chat/sessions */
 export async function fetchChatSessions(): Promise<ChatSession[]> {
@@ -16,7 +16,7 @@ export async function fetchChatSessions(): Promise<ChatSession[]> {
     await mockDelay(200)
     return [...mockChatSessions]
   }
-  return http.get<ChatSession[]>('/v1/chat/sessions')
+  return http.get<ChatSession[]>('/chat/sessions')
 }
 
 /** 删除会话 DELETE /v1/chat/sessions/{id} */
@@ -25,5 +25,5 @@ export async function deleteChatSession(id: string): Promise<void> {
     await mockDelay(150)
     return
   }
-  await http.delete<null>(`/v1/chat/sessions/${id}`)
+  await http.delete<null>(`/chat/sessions/${id}`)
 }

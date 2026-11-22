@@ -19,6 +19,13 @@ export interface ChatAttachment {
    * 真实上传成功后换成后端返回的 URL。会话切换后不保证还有效。
    */
   previewUrl?: string
+  /** 上传成功后后端返回的 fileId；发送时只认这个，不认上面的本地 id */
+  fileId?: string
+  /**
+   * 待上传的原始文件。发送时用完即置空——留着会让整段 File 一直被引用，
+   * 一次会话贴十几张图就能占几十兆内存。
+   */
+  file?: File
 }
 
 export interface ChatMessage {

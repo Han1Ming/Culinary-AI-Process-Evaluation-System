@@ -22,11 +22,15 @@ import {
   updateNotice,
 } from '@/api/notice'
 import { formatDateTime } from '@/utils/format'
+import { useNoticeStore } from '@/stores/notice'
 import { NOTICE_TYPE_LABELS } from '@/types'
 import type { Notice, NoticeForm, NoticeType, UserRole } from '@/types'
 
 const loading = ref(true)
 const notices = ref<Notice[]>([])
+
+// 管理端也吃同一份公告状态：发布 / 撤回之后顶栏铃铛要立刻对上，不能等下次刷新
+const noticeStore = useNoticeStore()
 
 const stats = computed(() => {
   const published = notices.value.filter((n) => n.status === 'published')
@@ -56,6 +60,14 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+/**
+ * 写操作之后统一走这里：
+ * 管理端列表 + 接收端状态一起刷，否则「发布了但铃铛没变」还会再复现一次。
+ */
+async function reloadBoth(): Promise<void> {
+  await Promise.all([load(), noticeStore.refresh(true)])
 }
 
 onMounted(load)
@@ -147,7 +159,7 @@ async function submit(): Promise<void> {
       ElMessage.success('已创建为草稿，确认无误后点「发布」')
     }
     dialogVisible.value = false
-    await load()
+    await reloadBoth()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '保存失败')
   } finally {
@@ -157,16 +169,17 @@ async function submit(): Promise<void> {
 
 async function handlePublish(row: Notice): Promise<void> {
   try {
-    await ElMessageBox.confirm(`发布后「${audienceText(row)}」立即可见，确认发布？`, '发布通知', {
-      confirmButtonText: '发布',
-      cancelButtonText: '取消',
-    })
+    await ElMessageBox.confirm(
+      `发布后「${audienceText(row)}」立即可见：顶栏铃铛、工作台公告卡与公告中心三处同时生效。确认发布？`,
+      '发布通知',
+      { confirmButtonText: '发布', cancelButtonText: '取消' },
+    )
   } catch {
     return
   }
   await publishNotice(row.id)
   ElMessage.success('已发布')
-  await load()
+  await reloadBoth()
 }
 
 async function handleRevoke(row: Notice): Promise<void> {
@@ -181,7 +194,7 @@ async function handleRevoke(row: Notice): Promise<void> {
   }
   await revokeNotice(row.id)
   ElMessage.success('已撤回为草稿')
-  await load()
+  await reloadBoth()
 }
 
 async function handleDelete(row: Notice): Promise<void> {
@@ -196,7 +209,7 @@ async function handleDelete(row: Notice): Promise<void> {
   }
   await deleteNotice(row.id)
   ElMessage.success('已删除')
-  await load()
+  await reloadBoth()
 }
 
 function audienceText(row: Notice): string {
@@ -239,7 +252,7 @@ function excerpt(body: string): string {
         <span>平均阅读率</span>
         <strong class="num">{{ stats.readRate }}%</strong>
       </div>
-      <p class="notice-stats__hint">置顶通知会排在学生工作台第一位</p>
+      <p class="notice-stats__hint">发布后进入顶栏铃铛、工作台公告卡与公告中心；置顶的排在最前</p>
     </div>
 
     <AppSkeleton v-if="loading" variant="list" :count="4" />

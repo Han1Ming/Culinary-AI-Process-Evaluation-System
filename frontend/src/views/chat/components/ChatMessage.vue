@@ -4,10 +4,16 @@ import { ElMessage } from 'element-plus'
 
 import { renderMarkdown } from '@/utils/markdown'
 import { formatTime } from '@/utils/format'
+import { useRole } from '@/composables/useRole'
+import { assistantName } from '@/config/permissions'
 import type { ChatMessage } from '@/types'
 
 const props = defineProps<{ message: ChatMessage }>()
 const emit = defineEmits<{ regenerate: [] }>()
+
+const { role } = useRole()
+/** 气泡上的名字与页头一致：学生看到「老师」，教师看到「助手」 */
+const botName = computed(() => assistantName(role.value))
 
 const isUser = computed(() => props.message.role === 'user')
 const html = computed(() => renderMarkdown(props.message.content))
@@ -43,7 +49,7 @@ async function handleCopy(): Promise<void> {
 
     <div class="chat-message__main">
       <div class="chat-message__meta">
-        <span class="chat-message__name">{{ isUser ? '我' : '智能 AI 老师' }}</span>
+        <span class="chat-message__name">{{ isUser ? '我' : botName }}</span>
         <time>{{ formatTime(props.message.createdAt) }}</time>
       </div>
 

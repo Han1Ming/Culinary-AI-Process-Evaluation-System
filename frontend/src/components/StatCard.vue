@@ -13,8 +13,16 @@ import type { StatCardData } from '@/types'
  *  · 环比只用深灰文字 + 一个 5px 的三角，语义色仅在此处出现
  *  · 没有同期数据（delta 为 undefined）就整行不渲染——签到次数、待办这类
  *    指标本来就没有「较上周」的意义，硬凑一个「持平」比空着更假
+ *  · 给了 note 就用同一行位置写口径（「含 1 人请假」），不另起一行
+ *  · 给了 to 才可点：可点的卡片必须跳到能解释这个数字的页面，
+ *    跳不到就别做成按钮——点了没反应比不能点更糟
  */
-const props = defineProps<{ data: StatCardData; index?: number }>()
+const props = withDefaults(
+  defineProps<{ data: StatCardData; index?: number; to?: string }>(),
+  { to: '' },
+)
+
+const emit = defineEmits<{ select: [path: string] }>()
 
 const value = computed(() => props.data.value)
 const { display } = useCountUp(value, { duration: 820, delay: 120 + (props.index ?? 0) * 40 })
@@ -30,10 +38,22 @@ const trend = computed(() => {
     icon: delta > 0 ? 'CaretTop' : 'CaretBottom',
   }
 })
+
+function open(): void {
+  if (props.to) emit('select', props.to)
+}
 </script>
 
 <template>
-  <article class="stat">
+  <article
+    class="stat"
+    :class="{ 'is-link': !!to }"
+    :role="to ? 'link' : undefined"
+    :tabindex="to ? 0 : undefined"
+    @click="open"
+    @keydown.enter.prevent="open"
+    @keydown.space.prevent="open"
+  >
     <header class="stat__head">
       <span class="stat__label">{{ data.label }}</span>
       <el-icon class="stat__icon"><component :is="data.icon" /></el-icon>
@@ -44,12 +64,15 @@ const trend = computed(() => {
       <small v-if="data.unit">{{ data.unit }}</small>
     </p>
 
-    <footer v-if="data.delta !== undefined" class="stat__foot">
-      <span class="stat__trend" :class="trend.className">
-        <el-icon v-if="trend.icon" class="stat__caret"><component :is="trend.icon" /></el-icon>
-        <span class="num">{{ trend.text }}</span>
-      </span>
-      <span class="stat__hint">较上周</span>
+    <footer v-if="data.delta !== undefined || data.note" class="stat__foot">
+      <template v-if="data.delta !== undefined">
+        <span class="stat__trend" :class="trend.className">
+          <el-icon v-if="trend.icon" class="stat__caret"><component :is="trend.icon" /></el-icon>
+          <span class="num">{{ trend.text }}</span>
+        </span>
+        <span class="stat__hint">较上周</span>
+      </template>
+      <span v-else class="stat__hint">{{ data.note }}</span>
     </footer>
   </article>
 </template>
@@ -71,6 +94,16 @@ const trend = computed(() => {
     border-color: $color-border;
     box-shadow: $shadow-raised;
     transform: translateY(-1px);
+  }
+
+  // 可跳转的卡片：指针与键盘都要能触发，焦点环用浏览器默认的 2px 外框
+  &.is-link {
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: 2px solid $color-primary;
+      outline-offset: 2px;
+    }
   }
 
   &__head {

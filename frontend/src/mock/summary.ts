@@ -10,7 +10,20 @@
  * 这样「总分不是满分口径」这类说明能对得上号。
  */
 import { mockStudents } from './students'
-import type { SummaryClassStat, SummaryStage, SummaryStudent, SummaryTask } from '@/types/summary'
+import { RULE_VERSION } from '@/config/rules'
+import dishShot from '@/assets/images/dish-plated.jpg'
+import prepShot from '@/assets/images/prep-cutting.jpg'
+import uniformShot from '@/assets/images/uniform-students.jpg'
+import wokShot from '@/assets/images/wok-frying.jpg'
+import type {
+  ScoreSource,
+  SummaryClassStat,
+  SummaryStage,
+  SummaryStudent,
+  SummaryTask,
+} from '@/types/summary'
+
+/** 当前评价规则版本；归档时冻结到成绩上（定义在 config/rules.ts） */
 
 /** 五个环节的固定口径：权重合计必须为 1，改之前先和教研组对齐 */
 const STAGE_DEFS: Array<Pick<SummaryStage, 'key' | 'label' | 'weight' | 'records'>> = [
@@ -37,6 +50,75 @@ const CLASS_IDS: Record<string, number> = {
   '西餐工艺 2302': 13,
 }
 
+/** 每个环节的来源记录模板：分数不是凭空来的，点开要能看到凭据 */
+const SOURCE_TEMPLATES: Record<string, Array<Omit<ScoreSource, 'id'>>> = {
+  checkin: [
+    {
+      module: '签到',
+      title: '人脸签到成功',
+      at: '2026-11-21 08:12:31',
+      detail: '相似度 96.4%，设备 CAM-A-001',
+      snapshot: uniformShot,
+    },
+    {
+      module: '着装',
+      title: '着装规范检测 · 合规',
+      at: '2026-11-21 08:14:02',
+      detail: '厨师服 / 厨师帽 / 围裙 / 饰物 5 项全部通过',
+      snapshot: uniformShot,
+    },
+  ],
+  ingredient: [
+    {
+      module: '食材预处理',
+      title: '切配频率分析',
+      at: '2026-11-21 08:36:20',
+      detail: '累计 186 刀，平均 2.4 次/秒，均匀度 87%',
+      snapshot: prepShot,
+    },
+    {
+      module: '食材预处理',
+      title: '成丝规格抽帧',
+      at: '2026-11-21 08:38:05',
+      detail: '截面 2.9mm × 3.1mm，与课程标准 3mm 偏差 3%',
+      snapshot: prepShot,
+    },
+  ],
+  cooking: [
+    {
+      module: '烹饪过程',
+      title: '六步骤分段完成',
+      at: '2026-11-21 09:02:40',
+      detail: '备菜 / 焯水 / 烧干锅 / 加油润锅 / 翻炒 / 装盘 全部识别完成',
+      snapshot: wokShot,
+    },
+    {
+      module: '烹饪过程',
+      title: '疑似跳步：锅未烧干直接下油',
+      at: '2026-11-21 08:50:31',
+      detail: '教师复核后确认误判：画面遮挡导致温度曲线缺失',
+      snapshot: wokShot,
+    },
+  ],
+  dish: [
+    {
+      module: '菜肴成品',
+      title: '成品多模态评分',
+      at: '2026-11-21 11:32:18',
+      detail: '食材外观 90 / 摆盘 86 / 色彩 91 / 工艺 87 / 创意 84',
+      snapshot: dishShot,
+    },
+  ],
+  qa: [
+    {
+      module: '课堂问答',
+      title: '本节课堂问答 4 题',
+      at: '2026-11-21 10:42:00',
+      detail: '正确 4 题，平均用时 38s',
+    },
+  ],
+}
+
 /** 已归档的学生与归档时间 */
 const ARCHIVED: Record<number, string> = {
   1001: '2026-11-21 09:32',
@@ -51,6 +133,9 @@ export const mockSummaryTask: SummaryTask = {
   teacher: '陈立群',
 }
 
+/** AI 初评与教师复核的差异：负数表示机器给低了，教师改高 */
+const AI_OFFSETS = [-2, 1, -3, 0, 2]
+
 export const mockSummaryStudents: SummaryStudent[] = mockStudents.map((stu) => {
   const scores = SCORES[stu.id] ?? STAGE_DEFS.map(() => 0)
   return {
@@ -62,7 +147,87 @@ export const mockSummaryStudents: SummaryStudent[] = mockStudents.map((stu) => {
     seat: stu.seat,
     confirmed: Boolean(ARCHIVED[stu.id]),
     archivedAt: ARCHIVED[stu.id],
-    stages: STAGE_DEFS.map((def, i) => ({ ...def, score: scores[i] ?? 0 })),
+    ruleVersion: ARCHIVED[stu.id] ? RULE_VERSION : undefined,
+    archivedTotal: ARCHIVED[stu.id]
+      ? Math.round(
+          STAGE_DEFS.reduce((sum, def, i) => sum + (scores[i] ?? 0) * def.weight, 0),
+        )
+      : undefined,
+    changes:
+      stu.id === 1001
+        ? [
+            {
+              id: 'chg_1001_1',
+              at: '2026-11-21 09:18',
+              by: '陈立群',
+              target: 'stage',
+              stageLabel: '烹饪过程',
+              from: 86,
+              to: 88,
+              reason: '疑似跳步为画面遮挡误判，复核后恢复 2 分',
+            },
+          ]
+        : stu.id === 1003
+          ? [
+              {
+                id: 'chg_1003_1',
+                at: '2026-11-21 09:22',
+                by: '李慧敏',
+                target: 'stage',
+                stageLabel: '菜肴成品',
+                from: 78,
+                to: 74,
+                reason: '餐具边缘有明显指印，扣 4 分',
+              },
+            ]
+          : [],
+    /**
+     * 复核状态：演示时三种状态都要能看到，否则教师不知道「驳回」长什么样。
+     * 已归档的一定是 confirmed；1002 留给「已驳回」，1004 留给「转复核」。
+     */
+    reviewState: ARCHIVED[stu.id]
+      ? 'confirmed'
+      : stu.id === 1002
+        ? 'rejected'
+        : stu.id === 1004
+          ? 'reviewing'
+          : 'pending',
+    reviewNote:
+      stu.id === 1002
+        ? '成品照片反光严重，无法判断芡汁挂壁，请重新拍摄后提交'
+        : stu.id === 1004
+          ? '刀工段与烹饪段的视频时间戳对不上，留待教研组核对'
+          : undefined,
+    reviewedBy: ARCHIVED[stu.id] ? '陈立群' : stu.id === 1002 ? '陈立群' : stu.id === 1004 ? '陈立群' : undefined,
+    reviewedAt: ARCHIVED[stu.id] ? ARCHIVED[stu.id] : stu.id === 1002 ? '2026-11-21 09:26' : undefined,
+    stages: STAGE_DEFS.map((def, i) => {
+      const score = scores[i] ?? 0
+      const aiScore = Math.max(0, Math.min(100, score + AI_OFFSETS[i]))
+      const reviewed = Boolean(ARCHIVED[stu.id]) || i < 2
+      return {
+        ...def,
+        score,
+        aiScore,
+        reviewScore: score,
+        reviewed,
+        sources: (SOURCE_TEMPLATES[def.key] ?? []).map((source, index) => ({
+          ...source,
+          id: `${stu.id}_${def.key}_${index + 1}`,
+          // 单条来源分：围绕环节分 ±2，两条之间略有差异才像真实的抽帧结果；
+          // 改分后环节分按来源重新平均，与 api 的 overrideSourceScore 算法保持一致
+          score: Math.max(0, Math.min(100, score + (index === 0 ? 2 : -2))),
+          dimensions: [
+            { label: '识别置信度', value: (0.9 - index * 0.04).toFixed(2) },
+            { label: '有效时长', value: index === 0 ? '42s' : '18s' },
+            { label: '采样帧', value: index === 0 ? '84 帧' : '36 帧' },
+          ],
+          meta: [
+            { label: '来源设备', value: index === 0 ? 'CAM-A-001' : 'CAM-A-002' },
+            { label: '模型版本', value: 'v1.3' },
+          ],
+        })),
+      }
+    }),
   }
 })
 
