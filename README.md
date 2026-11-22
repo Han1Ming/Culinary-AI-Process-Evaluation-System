@@ -21,7 +21,11 @@
 | `frontend/` | 全部前端源码（Vue 3 + TS + Element Plus），可独立运行 | 主要工作区 |
 | `backend/` | 后端占位目录，当前只有一份 `requirements.txt` 建议依赖清单（FastAPI + MySQL + 视觉/大模型库）。FastAPI 代码由后端同学在这个目录下建，前端不依赖其源码 | 后端同学 |
 | `docs/项目完整指南.md` | 14 章完整指南：跑起来 / 改代码 / 接后端 / 建表 / 写论文 / 答辩 | 随代码一起更新 |
-| `docs/后端开发任务书.md` | **交给后端同学的施工图**：启动、目录结构、统一约定、建表 DDL、接口清单、导出方案、SSE 要求、验收清单、排期 | 接口变了先改这里 |
+| `docs/项目开发方案.md` | **立项与归档用**：背景目标、范围边界、需求分析、总体架构、技术选型、模块与数据设计、权限模型、非功能指标、实施计划、风险、验收标准 | 阶段变更时改 |
+| `docs/后端开发任务书.md` | **交给后端同学的施工图**：启动、目录结构、统一约定、建表 DDL、接口清单、通知与公告、部署配置、日志监控、测试与验收 DoD、排期 | 接口变了先改这里 |
+| `docs/后台开发说明书.md` | **交给接手开发同学的手册**：十分钟跑起来、分层与请求链路、接口层与状态管理规范、路由权限、样式体系、Mock 机制、SSE/上传/导出、新增模块 8 步、排障表、技术债 | 代码结构变了就改 |
+| `docs/项目使用说明书.md` | **交给教师 / 学生 / 管理员的手册**：按角色分章的操作步骤、常见问题、术语表、十分钟演示脚本 | 交互变了就改 |
+| `docs/需求落地对照表.md` | 逐条需求 → 状态 → 实现文件 → 页面路径，含本轮九项改动与缺口清单 | 验收前更新 |
 | `docs/reference/` | 需求与方案原始材料（任务书、开发方案、项目介绍）+ 一份索引说明 | 只读存档 |
 | `docs/assets/` | 真实运行截图，论文与答辩直接取用，不进前端包体 | 只增不改 |
 | `design-system/` | `ui-ux-pro-max` 生成的设计系统（MASTER.md + tokens.css/json） | 参考，不直接引 |
@@ -94,9 +98,12 @@ pnpm dev            # 或 npm run dev
 
 | 账号 | 角色 | 可访问 |
 | --- | --- | --- |
-| `admin` | 系统管理员 | 全部页面（含用户管理、通知发布）；**无**浮空助手、**无**智能 AI 老师 |
-| `teacher_chen` | 任课教师 | 工作台 / 评价总览 / 课程管理 / 六个评价模块（可在左上角选人复核）/ 智能 AI 老师 |
-| `2023010101` | 学生 | 工作台 / 人脸签到 / 五个评价模块（只看自己）/ 智能 AI 老师；用户管理与通知发布被路由守卫拦截 |
+| `admin` | 系统管理员 | 全部页面（含用户管理、通知发布）；**无**浮空助手、**无**智能 AI 助手 |
+| `teacher_chen` | 任课教师 | 工作台 / 评价总览 / 课程管理 / 班级名单 / 实训档案 / 六个评价模块（可在左上角选人复核）/ 智能 AI 助手 / 个人中心 |
+| `2023010101` | 学生 | 工作台 / 我的课程 / 我的实训档案 / 人脸签到 / 五个评价模块（只看自己）/ 我的成绩 / 智能 AI 老师 / 个人中心；用户管理与通知发布被路由守卫拦截 |
+
+> 同一个功能按角色换名字：`config/permissions.ts` 的 `assistantName(role)` 让**学生**看到「智能 AI 老师」、
+> **教师与管理员**看到「智能 AI 助手」，菜单 / 页面标题 / 消息署名单一来源，不要在组件里各写字符串。
 
 > 教师端的评价模块是**评别人**：左上角选一个在评学生，画面区显示该生的工位录像替代画面，
 > 判定结果、扣分、归档都记在这个学生名下。学生端同一页面才开自己的摄像头。
@@ -108,6 +115,19 @@ pnpm type-check     # vue-tsc --noEmit，提交前必跑
 pnpm build          # type-check + vite build，产物在 frontend/dist
 pnpm preview        # 本地预览构建产物（http://localhost:4173）
 ```
+
+### 6. 启动不起来时按顺序排查
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `Port 5173 is in use` | 上一个 dev server 没退干净 | `pnpm dev -- --port 5174` 换端口，或结束占用进程（Windows `netstat -ano \| findstr :5173` 找 PID → `taskkill /PID <pid> /F`） |
+| 满屏 `Failed to resolve import "@/..."`、`Install @vitejs/plugin-vue to handle .vue files` | **依赖预构建缓存坏了**，不是别名或插件问题。常发生在切分支、换 Node 版本、改 `vite.config.ts` 之后 | 删掉 `frontend/node_modules/.vite` 重新 `pnpm dev`（这份目录是可再生的缓存） |
+| `Cannot find module 'vite'` / `vue-tsc` 不存在 | 依赖没装或装了一半 | `cd frontend && pnpm install`（或 `npm install`）重新装 |
+| 页面能开但白屏、控制台 404 `/api/...` | `VITE_USE_MOCK` 被改成了 `false`，而后端没起 | 改回 `true`，或先启动 FastAPI 到 `127.0.0.1:8000` |
+| 改了 `.env.*` 没生效 | Vite 只在启动时读环境变量 | 停掉重跑 `pnpm dev` |
+
+> 浏览器访问 `http://127.0.0.1:5173` 若返回 502/无法连接，先确认命令本身没报错；
+> 公司或校园网代理会拦截 localhost 请求，可在浏览器代理设置里把 `127.0.0.1` 加入白名单（Chrome 加 `--no-proxy-server` 启动亦可）。
 
 ---
 
@@ -271,7 +291,7 @@ frontend/
     │                         #   summary.ts（综合评价名单与五环节得分，从 students.ts 推导）
     │                         #   courses.ts / notices.ts 单独成文件
     ├── router/               # index.ts 路由表 / guard.ts 守卫（按 meta.roles 拦越权）/ menu.ts 侧栏菜单（按 roles 过滤）
-    ├── stores/               # Pinia：auth app chat face review（+ index.ts 实例）
+    ├── stores/               # Pinia：auth / app / chat / face / review / notice / speech
     │                         #   review.ts 里的 activeStudentId 是全模块共享的——一节课跟着人走，不跟着页面走
     ├── types/                # 全局类型：api user chat face dashboard course notice table summary
     ├── utils/                # request(axios) sse(fetch 流) faceCapture markdown format token env
@@ -285,8 +305,10 @@ frontend/
     │   ├── register/         # 申请开通：三步表单 + 人脸照片采集
     │   ├── dashboard/        # 工作台：一个路由三套内容（学生 / 教师 / 管理员）
     │   ├── ai-eval/          # 评价总览（角色 × 七模块权限矩阵）
+    │   ├── profile/          # 个人中心：侧栏底部与右上角用户名进同一页，按角色换内容
+    │   ├── classes/          # 班级名单：班级列表 + 在册名单 + 白名单导入（两步：校验 → 导入）
     │   ├── courses/          # 课程管理：index.vue（列表/上传）+ detail.vue（菜谱 + AI 解读）
-    │   ├── chat/             # index.vue（智能 AI 老师）+ components/ChatMessage.vue、SessionDrawer.vue
+    │   ├── chat/             # index.vue（智能 AI 助手 / 学生端叫老师）+ components/ChatMessage.vue、SessionDrawer.vue
     │   ├── face-checkin/     # 模块 1：人脸识别签到
     │   ├── modules/          # 模块 2-6，每个目录一个独立页面
     │   │   ├── uniform/      #   着装规范识别
@@ -295,8 +317,9 @@ frontend/
     │   │   ├── dish/         #   菜肴成品分析
     │   │   └── summary/      #   综合评价：index.vue（名单 + 归档 + 导出）+ report.vue（A4 报告，可另存 PDF）
     │   ├── login/
+    │   ├── notices/          # 公告中心：全部/未读筛选 + 全局阅读器（入口在铃铛与工作台公告卡）
     │   ├── system/
-    │   │   ├── user/         # 用户管理 + 学生档案抽屉（人脸照片核验 / 补录）
+    │   │   ├── user/         # 用户管理 + 学生档案抽屉（人脸照片核验 / 更换；行内操作只有编辑/删除）
     │   │   └── notice/       # 通知发布：公告 / 功能更新 / 维护通知
     │   └── error/404.vue
     ├── App.vue
@@ -413,7 +436,7 @@ user_id: 可选，指定比对目标时传
 ### 4. 注册（含人脸底库照片）
 
 ```http
-POST /v1/auth/register
+POST /auth/register
 Content-Type: application/json
 ```
 
@@ -431,56 +454,81 @@ Content-Type: application/json
 ```
 
 - `facePhoto` 为 `dataURL` 字符串（前端已压缩到 480px 宽、JPEG 0.82，单张约 40–60KB）；
-- 后端落库时建议直接把 `facePhoto` 存为 `TEXT`/`LONGTEXT`，或转存对象存储后只回存 URL —— 只要 `GET /v1/users` 返回的 `facePhoto` 字段能渲染成图片即可，前端不关心是 base64 还是 URL；
+- 后端落库时建议直接把 `facePhoto` 存为 `TEXT`/`LONGTEXT`，或转存对象存储后只回存 URL —— 只要 `GET /users` 返回的 `facePhoto` 字段能渲染成图片即可，前端不关心是 base64 还是 URL；
 - 返回 `{ "id": 1001, "username": "2023010101", "needApproval": true }`，`needApproval=true` 时前端提示「待管理员审核」，不自动登录。
 
 ### 5. 七大模块接口
 
-七个模块的完整契约直接写在各自页面的接入面板里（`ApiPanel`；人脸签到与智能 AI 老师在页头「接口」抽屉里），后端同学打开页面复制即可。汇总：
+七个模块的完整契约直接写在各自页面的接入面板里（`ApiPanel`；人脸签到、烹饪过程与智能 AI 老师在页头「接口」抽屉里），后端同学打开页面复制即可。下表是**当前代码里的真实路径**（下表省略 `/api/v1` 前缀，`VITE_API_BASE_URL` 已含）：
 
 | 模块 | 接口 | 说明 |
 | --- | --- | --- |
-| 人脸签到 | `POST /api/face/checkin` | 见第 3 节，`multipart/form-data` |
-| 人脸签到 | `GET /api/face/records?limit` | 最近签到流水，`status` 为 success / failed |
-| 着装规范 | `POST /api/modules/uniform/analyze` | 入参 `{ image, user_id }`，返回 5 项判定 + 总分 + 建议 |
-| 着装规范 | `GET /api/modules/uniform/records?user_id&limit` | 近期复检记录 |
-| 食材切配 | `POST /api/modules/ingredient/analyze` | 返回 `cuts_per_min`、`uniformity`、`grade` |
-| 食材切配 | `GET /api/modules/ingredient/frame` | 单帧取样（前端 1.5s 轮询） |
-| 烹饪过程 | `WS /ws/cooking` | 服务端推 `{ step, progress, confidence }`，断线由前端指数退避重连 |
-| 烹饪过程 | `GET /api/modules/cooking/segments?session_id` | 6 步时序分段 + 每步时长判定 |
-| 成品评分 | `POST /api/modules/dish/analyze` | 返回 5 维分数 + 总分 + 评语 |
-| 成品评分 | `GET /api/modules/dish/rubric` | 评分细则（维度权重可配置） |
-| 综合评价 | `GET /api/v1/summary/roster?taskId&classId` | 任务信息 + 名单 + 五环节得分（教师 / 管理员） |
-| 综合评价 | `GET /api/v1/summary/{studentId}/report` | 单人报告（打印页取这份） |
-| 综合评价 | `POST /api/v1/summary/{studentId}/archive` | 归档，返回 `archivedAt` / `snapshotId` |
-| 智能 AI 老师 | `POST /api/v1/chat`（SSE，带 `file_ids`） | 帧格式见第 2 节 |
-| 智能 AI 老师 | `POST /api/v1/files` | 成品图 / 菜谱 PDF 上传，返回 `file_id` |
-| 各模块通用 | `GET /api/v1/students?class_id` | 教师端左上角选人器的名单来源（`mock/students.ts` 的线上版） |
+| 工作台 | `GET /dashboard/overview?courseId&classId&taskId` | 教师 / 管理员：当前实训、签到与实训进度、设备在线、模块完成度、待复核与异常 |
+| 工作台 | `GET /dashboard/me` | 学生：本人任务、签到状态、环节进度、已归档成绩（看不到别人） |
+| 人脸签到 | `POST /face/checkin` | `multipart/form-data`（`image` + `deviceId`），返回 `matches[]` 支持多人同框 |
+| 人脸签到 | `GET /face/records?page&pageSize&studentId&studentKeyword&className&status&startDate&endDate` | 分页 + 筛选，返回 `PageResult<FaceRecord>`；**学生 token 只按 `studentId` 过滤**，班级与关键字参数被忽略 |
+| 人脸签到 | `GET /face/records/{id}` | 单条详情（含抓拍图、设备、来源、补录原因） |
+| 人脸签到 | `POST /face/checkin/manual` | 教师补录，必须带 `reason` 并记录 `operatorId` |
+| 人脸底库 | `GET /face/profiles`、`PUT /face/profiles/{userId}`、`DELETE /face/profiles/{userId}` | 注册 / 更新 / 注销（软删 + 原因） |
+| 着装规范 | `POST /modules/uniform/analyze` | 五项判定（帽/衣/围裙/袖口/发网）+ 置信度 + 抓拍 + 原因 |
+| 着装规范 | `GET /modules/uniform/records` | 复检记录，供违规统计与导出 |
+| 食材切配 | `POST /modules/ingredient/analyze` | 切配频率序列、均匀度、关键帧、指标等级与依据 |
+| 食材切配 | `GET /modules/ingredient/frame` | 单帧取样（前端 1.5s 轮询） |
+| 烹饪过程 | `GET /cooking/board?studentId` | 四路通道 + 六步时序 + 事件流（**不再返回语音设置**，语音已独立，见下） |
+| 烹饪过程 | `WS /ws/cooking` | 只推事件与步骤（`event / step / heartbeat`），媒体流另走 `/ws/media/{channelId}` |
+| 烹饪过程 | `POST /cooking/events/{id}/ack`、`POST /cooking/steps/{key}/review` | 教师确认事件 / 改判步骤，均写审计 |
+| 烹饪过程 | `PUT /cooking/channels/{id}` | 摄像头与工位重新绑定（只改通道，不动语音） |
+| 语音配置 | `GET /voice/config?station`、`PUT /voice/config` | **与 WS、媒体流完全解耦**，按工位生效；前端另存一份 localStorage，断网也能开关 |
+| 成品评分 | `POST /dish/analyze` | 五维（分数/权重/原因/建议）+ 总分等级 + 免责说明，超时 60s |
+| 成品评分 | `PUT /dish/{id}/override` | 教师改分：保留 `aiScore` 原值，只叠加教师层 |
+| 成品评分 | `POST /dish/{id}/review` | 教师复核三态（`confirm` / `reject` / `hold`），后两者必须带原因 |
+| 成品评分 | `GET /dish/history` | 本人历史成品记录 |
+| 综合评价 | `GET /summary/roster?taskId&classId` | 任务信息 + 名单 + 五环节得分 + 复核状态（AI 初评 / 教师复核 / 最终） |
+| 综合评价 | `GET /summary/{studentId}/report` | 单人报告（打印页取这份） |
+| 综合评价 | `POST /summary/{studentId}/archive` | 归档：冻结分数、规则版本与原始分项；**前置条件 `reviewState === 'confirmed'`** |
+| 综合评价 | `POST /summary/{studentId}/review` | 复核流转：`confirm` → 归档放行；`reject` / `hold` 必须带 ≥4 字原因 |
+| 综合评价 | `PATCH /summary/{studentId}/stages/{stageKey}/sources/{sourceId}` | 成绩溯源改分：改的是**最原始那条来源记录**，原值落库，同时追加一条成绩修改记录 |
+| 个人中心 | `GET /profile/overview`、`PUT /profile/contact` | 一个接口三角色：学生回 `scores`，教师回 `timetable` / `classes`；`username` 参数只服务 Mock |
+| 班级白名单 | `GET /classes`、`POST /classes/{id}/whitelist/parse`、`POST /classes/{id}/whitelist` | 先校验再导入；已存在学号一律跳过不覆盖 |
+| 实训档案 | `GET /archive/{studentId}?semester&courseId&type` | 历史实训趋势、各环节问题、教师评语（学生只能取本人） |
+| 工位与设备 | `GET /devices/workstations`、`GET /devices/cameras`、`GET /devices/logs` | 管理员：工位、摄像头、操作记录 |
+| 工位与设备 | `POST /devices/workstations`、`PUT /devices/workstations/{id}[/status]` | 新建 / 编辑 / 改状态（空闲、使用中、维护、停用） |
+| 工位与设备 | `PUT /devices/cameras/{id}/bind`、`PUT /devices/cameras/{id}/status`、`POST /devices/cameras/{id}/test` | 绑定工位 / 启停 / 连接测试（返回 fps、latency） |
+| 智能 AI 老师 | `POST /chat`（SSE，带 `fileIds`） | 帧格式见第 2 节 |
+| 智能 AI 老师 | `POST /files` | 成品图 / 菜谱 PDF 上传，返回 `{ fileId, url, name, size }` |
+| 各模块通用 | `GET /students?classId` | 教师端选人器与评价模块的名单来源（`mock/students.ts` 的线上版） |
 
 > 注意：模块接口统一挂在 `/api/modules/` 下（不是 `/api/ai/`），这是本次重写的路径约定，与面板里展示的完全一致。若后端沿用 `/api/ai/*`，改 `frontend/src/api/` 对应文件里的常量即可，页面无需改动。
 
 ### 6. 其它接口清单
 
+下表省略 `/api/v1` 前缀，与 `VITE_API_BASE_URL` 拼起来就是完整地址。
+
 | 模块 | 接口 | 当前状态 |
 | --- | --- | --- |
-| 登录 | `POST /v1/auth/login`、`GET /v1/auth/profile`、`POST /v1/auth/logout` | Mock 中，可直接替换 |
-| 注册 | `POST /v1/auth/register` | Mock 中（会校验用户名重复） |
-| 用户管理 | `GET/POST /v1/users`、`PUT/DELETE /v1/users/{id}` | Mock 中，`facePhoto` 字段已打通到学生档案抽屉 |
-| 补录人脸 | `PUT /v1/users/{id}/face` | Mock 中；入参 `{ facePhoto }`（dataURL），见 6.2 |
-| 工作台（教师/管理员） | `GET /v1/dashboard/overview` | Mock 中 |
-| 工作台（学生） | `GET /v1/dashboard/me` | Mock 中，见 6.1 |
-| 课程管理 | `GET/POST /v1/courses`、`GET /v1/courses/{id}` | Mock 中，见 6.3 |
-| 菜谱解析 | `GET /v1/courses/{id}/recipe`、`POST /v1/courses/{id}/analyze` | Mock 中，返回难点/易错点 + 步骤标注，见 6.3 |
-| 通知发布 | `GET/POST /v1/notices`、`PUT/DELETE /v1/notices/{id}` | Mock 中，见 6.4 |
-| 综合评价 | `GET /v1/summary/roster`、`GET /v1/summary/{id}/report`、`POST /v1/summary/{id}/archive` | **本次已接前端**；字段 camelCase，结构与 `types/summary.ts` 一致，见 `docs/后端开发任务书.md` 6.6 |
-| 问答会话 | `GET /v1/chat/sessions`、`DELETE /v1/chat/sessions/{id}` | Mock 中，页面已预留抽屉 |
-| 附件上传 | `POST /api/v1/files` | **待对接**；入参 `multipart/form-data`，返回 `file_id` |
-| 预约演示留资 | `POST /v1/demo-requests` | Mock 中（按手机号 24 小时内去重，重复提交返回错误）。入参 `{ org, name, role, phone, scale, plan, want, note? }`，返回 `{ requestNo }`。官网 `/demo` 唯一出口，见 `api/demo.ts` |
-| 学生名单 | `GET /api/v1/students?class_id` | **待对接**；教师端选人器用，Mock 走 `src/mock/students.ts` |
-| 智能 AI 老师 | `POST /api/v1/chat`（SSE） | **待对接** |
+| 登录 | `POST /auth/login`、`GET /auth/profile`、`POST /auth/logout` | Mock 中，可直接替换 |
+| 注册 | `POST /auth/register` | Mock 中（会校验用户名重复） |
+| 用户管理 | `GET/POST /users`、`PUT/DELETE /users/{id}` | Mock 中，`facePhoto` 字段已打通到学生档案抽屉 |
+| 补录人脸 | `PUT /users/{id}/face` | Mock 中；入参 `{ facePhoto }`（dataURL），见 6.2 |
+| 工作台（教师/管理员） | `GET /dashboard/overview` | Mock 中，支持三级筛选，见 6.1 |
+| 工作台（学生） | `GET /dashboard/me` | Mock 中，见 6.1 |
+| 课程管理 | `GET/POST /courses`、`GET /courses/{id}` | Mock 中，见 6.3 |
+| 菜谱解析 | `GET /courses/{id}/recipe`、`POST /courses/{id}/analyze` | Mock 中，返回难点/易错点 + 步骤标注，见 6.3 |
+| 通知公告 | `GET /notices`（接收端）/ `?scope=manage`（管理端）、`POST/PUT/DELETE /notices/{id}`、`POST /notices/{id}/publish`、`POST /notices/{id}/revoke`、`POST /notices/{id}/read` | Mock 中；接收端按 `audience` + 角色过滤，已读用 `notice_reads` 去重，见任务书 6.11 |
+| 综合评价 | `GET /summary/roster`、`GET /summary/{id}/report`、`POST /summary/{id}/archive`、`POST /summary/{id}/review`、`PATCH /summary/{id}/stages/{key}/sources/{sid}` | **已接前端**；字段 camelCase，结构与 `types/summary.ts` 一致，见 `docs/后端开发任务书.md` 6.6 |
+| 个人中心 | `GET /profile/overview`、`PUT /profile/contact` | Mock 中；`ProfileOverview` 见 `types/profile.ts`，见任务书 6.10.1 |
+| 班级白名单 | `GET /classes`、`POST /classes/{id}/whitelist/parse`、`POST /classes/{id}/whitelist` | Mock 中（会真的写进花名册），见任务书 6.10.2 |
+| 语音配置 | `GET /voice/config`、`PUT /voice/config` | Mock 中；`VoiceConfig` 见 `types/voice.ts`，见任务书 6.10.3 |
+| 实训档案 | `GET /archive/{studentId}` | Mock 中；学生只能取本人，越权返回 403 |
+| 工位与设备 | `GET /devices/workstations`、`GET /devices/cameras`、`GET /devices/logs` | Mock 中，管理员专属（`/system/device`） |
+| 问答会话 | `GET /chat/sessions`、`DELETE /chat/sessions/{id}` | Mock 中，页面已预留抽屉 |
+| 附件上传 | `POST /files` | **待对接**；`multipart/form-data`，返回 `{ fileId, url, name, size }` |
+| 预约演示留资 | `POST /demo-requests` | Mock 中（按手机号 24 小时内去重）。入参 `{ org, name, role, phone, scale, plan, want, note? }`，返回 `{ requestNo }`。官网 `/demo` 唯一出口，见 `api/demo.ts` |
+| 学生名单 | `GET /students?classId` | **待对接**；教师端选人器用，Mock 走 `src/mock/students.ts` |
+| 智能 AI 老师 | `POST /chat`（SSE） | **待对接** |
 | 七大模块 | 见第 5 节表格 | **待对接**（每页右侧面板已列全入参出参） |
 
-#### 6.1 学生工作台 `GET /v1/dashboard/me`
+#### 6.1 学生工作台 `GET /dashboard/me`
 
 学生看不到 `overview` 里的班级维度数据，所以单独一个接口，字段是「我自己的」：
 
@@ -488,46 +536,53 @@ Content-Type: application/json
 {
   "code": 0,
   "data": {
-    "studentName": "陈子豪", "studentNo": "2023010101", "className": "烹饪工艺与营养 2301",
+    "studentName": "陈子豪", "studentNo": "2023010101", "className": "烹饪工艺与营养 2301", "seat": "02",
     "course": { "id": 1, "title": "《中式热菜制作》—— 糖醋里脊", "dishes": ["糖醋里脊"],
-                "lessonAt": "2026-11-20 08:00", "goal": "掌握挂糊厚度与两遍复炸的火候控制", "published": true },
-    "stats": [{ "key": "score", "label": "上次实训得分", "value": 88, "unit": "分", "icon": "DataAnalysis", "tone": "primary" }],
+                "lessonAt": "2026-11-21 08:00", "goal": "掌握挂糊厚度与两遍复炸的火候控制", "published": true },
+    "task": { "id": "task_20261121_01", "title": "糖醋里脊 · 过程实训", "status": "running",
+              "startedAt": "2026-11-21T08:00:00", "endedAt": "2026-11-21T11:40:00", "step": "翻炒" },
+    "checkin": { "status": "checked_in", "at": "2026-11-21 08:12", "similarity": 96.4, "deviceName": "CAM-A-001" },
+    "archived": [{ "id": "arch_1001_prev", "taskTitle": "刀工与火候 · 补练", "archivedAt": "2026-11-20 14:02",
+                   "total": 88, "grade": "良好", "ruleVersion": "2026.11-v1.2" }],
+    "stats": [{ "key": "score", "label": "上一节实训得分", "value": 88, "unit": "分", "icon": "DataAnalysis", "tone": "primary" }],
     "stages": [{ "key": "cooking", "label": "烹饪过程", "score": 86, "weight": 0.3, "state": "running" }],
     "todos": [{ "id": "todo_2", "title": "上传成品照片", "hint": "出锅后 5 分钟内拍摄", "to": "/modules/dish", "done": false }],
-    "activities": [{ "id": "my_1", "type": "checkin", "title": "人脸签到通过", "description": "相似度 96.4%", "time": "2026-11-20 08:12", "actor": "我" }]
+    "activities": [{ "id": "my_1", "type": "checkin", "title": "人脸签到通过", "description": "相似度 96.4%", "time": "2026-11-21 08:12", "actor": "我" }]
   }
 }
 ```
 
 `stages[].state` 取 `done | running | pending`；`pending` 时前端不参与加权求和（避免「成品没交就有总分」）。
+`checkin.status` 取 `checked_in | manual | missing`，`manual` 必须带 `operator`（谁补录的），学生有权看到这一笔是谁操作的。
+`archived` 只放**已归档**的历史成绩，与进行中的 `stages` 分开，混在一起学生会把「本轮进行中」误读成历史。
 
-#### 6.2 补录人脸 `PUT /v1/users/{id}/face`
+#### 6.2 补录人脸 `PUT /users/{id}/face`
 
 ```json
 { "facePhoto": "data:image/jpeg;base64,..." }
 ```
 
-单独一个接口而不是复用 `PUT /v1/users/{id}`：改资料与动底库的审计口径不同，照片要额外留采集人、采集时间。返回 `{ "code": 0, "data": null }` 即可，前端会用同一份 dataURL 直接刷新列表与抽屉。
+单独一个接口而不是复用 `PUT /users/{id}`：改资料与动底库的审计口径不同，照片要额外留采集人、采集时间。返回 `{ "code": 0, "data": null }` 即可，前端会用同一份 dataURL 直接刷新列表与抽屉。
 
-#### 6.3 课程管理 `/v1/courses`
+#### 6.3 课程管理 `/courses`
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /v1/courses?class_id&teacher_id` | 课程列表，含 `fileName` / `fileSize` / `receiverCount` / `studentCount` |
-| `POST /v1/courses` | 上传课程：先 `multipart/form-data` 传 PDF（≤20MB），拿到 `fileUrl` 后再提交元信息 |
-| `GET /v1/courses/{id}` | 课程详情，返回结构化菜谱 `recipe`（配料 + 步骤）与 `analysis`（已生成时为对象，未生成为 `null`） |
-| `POST /v1/courses/{id}/analysis` | 生成菜谱解读，返回 `insights[]`：`kind` 取 `difficulty / pitfall`，`step` 指向步骤序号 |
+| `GET /courses?classId&teacherId` | 课程列表，含 `fileName` / `fileSize` / `receiverCount` / `studentCount` |
+| `POST /courses` | 上传课程：`multipart/form-data` 传 PDF（≤20MB）+ 元信息 |
+| `GET /courses/{id}` | 课程详情，返回结构化菜谱 `recipe`（配料 + 步骤）与 `analysis`（已生成时为对象，未生成为 `null`） |
+| `POST /courses/{id}/analyze` | 生成菜谱解读，返回 `insights[]`：`kind` 取 `difficulty / pitfall`，`step` 指向步骤序号 |
 
 `insights[].advice` 是给教师看处理建议、给学生的落地提示；前端把它挂在对应步骤右侧，所以 `step` 必须与 `recipe.steps[].index` 对齐，否则标注会落到错行。
 
-#### 6.4 通知发布 `/v1/notices`
+#### 6.4 通知发布 `/notices`
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /v1/notices?status&type` | 列表，含 `readCount` / `totalCount` / `pinned` |
-| `POST /v1/notices` | 新建（草稿或直接发布） |
-| `PUT /v1/notices/{id}` | 编辑、发布、撤回（`status` 取 `draft/published/withdrawn`） |
-| `DELETE /v1/notices/{id}` | 删除 |
+| `GET /notices?status&type` | 列表，含 `readCount` / `totalCount` / `pinned` |
+| `POST /notices` | 新建（草稿或直接发布） |
+| `PUT /notices/{id}` | 编辑、发布、撤回（`status` 取 `draft/published/withdrawn`） |
+| `DELETE /notices/{id}` | 删除 |
 
 `type` 取 `system / feature / maintenance`；`audience` 为 `'all'` 或角色数组，前端按此渲染「全站用户 / 教师 · 管理员」。
 
@@ -611,7 +666,7 @@ server {
 
 | 能力点 | 学生 | 教师 | 管理员 |
 | --- | --- | --- | --- |
-| 工作台 | 只看自己的（`/v1/dashboard/me`） | 班级签到率 + 模块进度 + 动态 | 再加账号构成与待处理 |
+| 工作台 | 只看自己的（`/dashboard/me`） | 班级签到率 + 模块进度 + 动态 | 再加账号构成与待处理 |
 | 评价总览 | 不可见 | 可见 | 可见 |
 | 模块内人工判定 / 扣分 | 只能自己操作 | 可扣分并留痕（`TeacherReview`） | 只看统计 |
 | 班级名单与他人成绩 | **不可见**（页面明示边界） | 可见、可复核、可归档、可导出 | 可见 |
@@ -630,14 +685,19 @@ server {
 | 页面 | 路由 | 亮点 |
 | --- | --- | --- |
 | 登录 | `/login` | 左右分栏：左侧实训现场实拍（压暗 + 去饱和，保证标题对比度）+ 三条能力点，右侧表单。表单校验、演示账号一键填充（学生 / 教师 / 管理员）、接口模式提示 |
-| 工作台 | `/dashboard` | **一个路由三套内容**：学生看到「我的实训」（本节课 + 我的五环节得分 + 待办 + 只有自己的动态）；教师看到班级签到率、模块进度、近期动态；管理员在教师版之上多一张「账号构成」与管理员专属统计（教师账号 / 未录入人脸 / 停用账号） |
+| 工作台 | `/dashboard` | **一个路由三套内容**：学生看到「我的实训」（本节课 + 任务与签到状态 + 我的五环节得分 + 已归档成绩 + 待办 + 只有自己的动态）；教师看到**课程/班级/任务三级筛选**、当前实训（课程·班级·任务·时间）、8 张可点进详情页的统计卡（应到 / 已签到 / 未签到 / 正在实训 / 已完成 / 摄像头在线 / 待复核 / 异常事件）、各评价模块完成情况、待复核名单、近期动态；管理员看到账号构成与模块交付进度（不参与评分，也不显示教师筛选条） |
 | 评价总览 | `/ai-eval` | **角色 × 模块权限矩阵**：上方三张角色卡（点一下切换视角），下方七行矩阵逐格给出「本人操作 / 复核扣分 / 全站管理 / 不参与」与职责说明，行末直接进入模块；当前登录角色标「当前登录」，非当前视角两列压暗 |
 | 课程管理 | `/courses` | 教师：上传菜谱（PDF ≤20MB、指定班级与实训目标）、发布、已收录进度、删除；同一班级同一天只允许一节课 |
 | 课程详情 | `/courses/:id` | 左：结构化菜谱（配料表 + 带关键控制点的操作步骤）；右：**AI 菜谱解读**——点「让 AI 读一遍」把难点（`difficulty`）与易错点（`pitfall`）标注到对应步骤上。学生看到的是标注结果，教师看到的是生成入口 |
 | 人脸签到 | `/face-checkin` | 摄像头预览、Canvas 虚线圆角引导框 + 扫描线、1.5s 截帧比对、成功动效 + 通知、失败人性化提示、最近记录 |
-| 智能 AI 老师 | `/chat` | 860px 居中窄栏、SSE 打字机 + 光标、Markdown 渲染（DOMPurify 消毒）、复制/重新生成、会话抽屉。**学生端是「智能 AI 老师」**：空态给三张入口卡（拍成品图 / 上传菜谱 PDF / 直接问工艺问题），支持拖拽、粘贴、选择文件三种方式加附件（图片与 PDF，单文件 ≤20MB、一次 ≤4 个），气泡内以缩略图/文件条展示；教师端同一页面叫「课程 AI 助教」，入口卡换成备课与扣分口径。管理员不开放此页（`meta.roles` 里没有 admin） |
-| 用户管理 | `/system/user` | 搜索筛选 + 分页 + 表格（52px 行高）+ 新增/编辑弹窗 + 状态切换 + 删除确认；行内「补录照片」与档案抽屉里的「更换 / 补录人脸照片」都打开 `FaceCaptureDialog`（摄像头 + 上传兜底，压到 480px JPEG 后 `PUT /v1/users/{id}/face`）。管理员账号不参与签到，抽屉里直接不摆照片框 |
-| 通知发布 | `/system/notice` | 已发布 / 草稿 / 置顶三态、阅读率统计、类型标签（系统公告 / 功能更新 / 维护通知）、发布对象（全站或指定角色）、编辑 / 撤回 / 删除 |
+| 智能 AI 助手 | `/chat` | 860px 居中窄栏、SSE 打字机 + 光标、Markdown 渲染（DOMPurify 消毒）、复制/重新生成、会话抽屉。**命名按角色走 `assistantName(role)`**：学生端叫「智能 AI 老师」，教师与管理员叫「智能 AI 助手」，菜单 / 页面标题 / 消息署名单一来源。学生端空态给三张入口卡（拍成品图 / 上传菜谱 PDF / 直接问工艺问题），支持拖拽、粘贴、选择文件三种方式加附件（图片与 PDF，单文件 ≤20MB、一次 ≤4 个），气泡内以缩略图/文件条展示；教师端入口卡换成备课与扣分口径。管理员不开放此页（`meta.roles` 里没有 admin） |
+| 个人中心 | `/profile` | **一个页面两个入口**：侧栏底部与右上角用户名下拉都进这里。数据全部从已有来源派生（账号 / 花名册 / 综合评价 / 课程关系），不另算一套。学生：学号、班级、人脸照片、手机、邮箱 + 本次加权分、环节条、近 6 次趋势；教师：登录账号、教研室、手机、邮箱、上次登录 + 本周课表、所带班级成绩概览。教师不显示底库照片与「我的成绩」（字段为空而不是塞假数据） |
+| 班级名单 | `/classes` | 教师 / 管理员：左侧班级列表（人数 / 待开通），右侧在册名单（学号、姓名、工位、人脸底库、本节签到）。**导入白名单**两步式：粘贴或选 CSV → 逐行校验（可创建 / 已存在 / 不合法 + 原因）→ 教师确认后才落库，已存在学号一律跳过不覆盖 |
+| 用户管理 | `/system/user` | 搜索筛选 + 分页 + 表格（52px 行高）+ 新增/编辑弹窗 + 状态切换 + 删除确认；**行内操作只保留「编辑 / 删除」**，人脸照片的维护收在档案抽屉里的「更换人脸照片」（`FaceCaptureDialog`，摄像头 + 上传兜底，压到 480px JPEG 后 `PUT /users/{id}/face`），表格行内不再摆第二个入口。管理员账号不参与签到，抽屉里直接不摆照片框 |
+| 通知发布 | `/system/notice` | 已发布 / 草稿 / 置顶三态、阅读率统计、类型标签（系统公告 / 功能更新 / 维护通知）、发布对象（全站或指定角色）、编辑 / 撤回 / 删除。**发布后进入顶栏铃铛、工作台公告卡、公告中心三处**，是同一份数据 |
+| 公告 | `/notices` | 三角色可读：全部 / 未读筛选、置顶优先、点开走全局阅读器（打开即标记已读）。不进侧栏菜单，入口是铃铛「查看全部公告」与工作台公告卡的「全部公告」 |
+| 实训档案 | `/archive` | 学生只看自己、教师看本班：成绩趋势折线（手写 SVG，不引图表库）、各环节问题、教师评语、按学期/课程/类型筛选；学生直接输别人的 id 会走 `forbidden` 分支，不发请求 |
+| 工位与设备 | `/system/device` | 管理员专属：工位表（空闲/使用中/维护/停用）、摄像头表（在线/离线/异常/停用，绑定工位、启停、连接测试返回 fps/latency）、操作记录表。每次变更都落 `device_logs`，只留结果不留过程是不允许的 |
 
 ### 4. 七大模块接入页
 
